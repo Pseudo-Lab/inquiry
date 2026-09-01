@@ -1,7 +1,8 @@
 # ADR-D4 — Agent Adapter 계약
 
-- 상태: **Proposed**
+- 상태: **Accepted**
 - 작성일: 2026-08-28
+- 확정일: 2026-09-02
 - 관련: PRODUCT-CONCEPT §10 §11 §16 §21.5 · REVIEW 1-④
 
 ## 맥락
