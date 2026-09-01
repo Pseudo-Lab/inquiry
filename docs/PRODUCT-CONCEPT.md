@@ -167,6 +167,8 @@ reviewer: minji
 
 ### 6.5 상태 모델
 
+> 아래 다이어그램은 개념 개관이다. **허용 전이표·불변식을 포함한 정식 상태 머신은 [ADR-D5](./decisions/ADR-D5-state-machine.md)를 정본으로 한다** (충돌 시 D5 우선).
+
 ```text
 suggested → exploring → supported ─┐
                   │               ├→ synthesized
