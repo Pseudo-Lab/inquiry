@@ -732,7 +732,7 @@ Evidence ─────────┘                          ├──▶ Ma
 너무 많은 유사 가설이 생길 수 있다.
 
 - 의미 중복 감지
-- 탐색 깊이·시간·비용 제한
+- 탐색 깊이·시간·비용 제한 (비용·예산·spend cap 정책은 [ADR-D6](./decisions/ADR-D6-cost-model.md) 참조)
 - `suggested`와 `active` 분리
 - synthesis와 archive 유도
 
