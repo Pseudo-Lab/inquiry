@@ -117,7 +117,7 @@ Question  →  Possibility  ←  Finding
 
 고급 관계인 `refines`, `depends-on`, `synthesizes`, `supersedes`는 시스템이 문맥으로 추론하거나 사용자가 고급 기능을 열었을 때만 표시한다.
 
-실제 사고는 분기 후 재결합되므로 내부 구조는 단순 트리가 아니라 DAG 또는 제한적인 순환을 허용하는 Inquiry Graph가 적합하다.
+실제 사고는 분기 후 재결합되므로 내부 구조는 단순 트리가 아니라 DAG(방향성 비순환 그래프)를 기본으로 하는 Inquiry Graph가 적합하다. 분기 후 재결합은 다부모 노드로 표현한다. **MVP(M2~M3)는 DAG-only로 확정하며, 제한적 순환은 M5 이후 재검토한다** ([ADR-D2](./decisions/ADR-D2-graph-model.md) 참조).
 
 ### 6.3 확장 개념은 기본 객체에 흡수한다
 

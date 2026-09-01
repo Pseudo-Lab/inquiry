@@ -1,7 +1,8 @@
 # ADR-D2 — 그래프 모델
 
-- 상태: **Proposed**
+- 상태: **Accepted**
 - 작성일: 2026-08-28
+- 확정일: 2026-09-02
 - 관련: PRODUCT-CONCEPT §6.2 §21.3 · REVIEW 1-②
 
 ## 맥락
