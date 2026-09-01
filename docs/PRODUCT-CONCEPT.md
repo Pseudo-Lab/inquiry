@@ -70,7 +70,7 @@ Inquiry는 완성된 답보다 **질문과 가설이 진화하는 과정**을 �
 
 ### 4.7 로컬 우선, 개방형 포맷을 지향한다
 
-핵심 기록과 산출물은 특정 SaaS에 잠기지 않아야 한다. Markdown, YAML, JSONL 등 사람이 읽고 다른 도구에서 재사용 가능한 형식을 우선한다.
+핵심 기록과 산출물은 특정 SaaS에 잠기지 않아야 한다. 원본(canonical)은 개방형 이벤트 로그(append-only JSONL)이며, 엔티티 Markdown과 산출물은 언제든 이 로그에서 재생성 가능한 export다. Markdown, YAML, JSONL 등 사람이 읽고 다른 도구에서 재사용 가능한 형식을 우선한다. (저장 형식 결정은 [ADR-D1](./decisions/ADR-D1-storage-format.md) 참조)
 
 ## 5. 주요 사용자와 사용 사례
 
