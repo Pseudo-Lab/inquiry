@@ -50,31 +50,6 @@ Inquiry는 **가설(Hypothesis)** 을 중심 객체로 두고, 이 과정을 재
 
 핵심 인터페이스는 별도 대시보드가 아니라 Claude Code·Codex처럼 터미널에 상주하는 대화형 TUI입니다. 상단에 전체 상태, 중앙에 Possibility Map, 하단에 주간 Actions와 대화 입력을 함께 둡니다.
 
-## 문서
-
-| 문서 | 내용 |
-|---|---|
-| [`docs/PRODUCT-CONCEPT.md`](./docs/PRODUCT-CONCEPT.md) | 제품 콘셉트 및 개발 전 기획서 (정본) |
-| [`docs/REVIEW.md`](./docs/REVIEW.md) | 콘셉트 리뷰 — 결정·난점·위험 |
-| [`docs/MILESTONES.md`](./docs/MILESTONES.md) | 게이트 기반 마일스톤 (M0~M5) |
-| [`docs/CONVENTIONS.md`](./docs/CONVENTIONS.md) | 문서·결정·데이터·협업 규약 (사람·에이전트 공통 기준) |
-| [`docs/decisions/`](./docs/decisions/) | Architecture Decision Records (ADR D1~D6) |
-
-## 현재 상태
-
-M0(블로킹 결정) 완료 — 6개 ADR이 모두 *Accepted*입니다.
-
-| ADR | 결정 | 결론 |
-|---|---|---|
-| D1 | canonical 저장 형식 | 이벤트 로그 원본 + Markdown projection |
-| D2 | 그래프 모델 | MVP는 DAG-only |
-| D3 | confidence 모델 + provenance | 범위·출처 표기, 앵커 rubric |
-| D4 | agent adapter 계약 | 모델 비종속 실행 인터페이스 |
-| D5 | 가설 상태 머신 | 허용 전이표 + 불변식 |
-| D6 | 비용 모델 | inquiry별 spend cap |
-
-다음 단계는 M1a(Framing Session 프롬프트 검증)와 M1b(정적 TUI 레이아웃 검증)입니다. 구현 언어는 **Python** 확정.
-
 ## 라이선스
 
 오픈소스 공개 예정 (라이선스 미확정).
