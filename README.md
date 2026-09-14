@@ -57,6 +57,7 @@ Inquiry는 **가설(Hypothesis)** 을 중심 객체로 두고, 이 과정을 재
 | [`docs/PRODUCT-CONCEPT.md`](./docs/PRODUCT-CONCEPT.md) | 제품 콘셉트 및 개발 전 기획서 (정본) |
 | [`docs/REVIEW.md`](./docs/REVIEW.md) | 콘셉트 리뷰 — 결정·난점·위험 |
 | [`docs/MILESTONES.md`](./docs/MILESTONES.md) | 게이트 기반 마일스톤 (M0~M5) |
+| [`docs/CONVENTIONS.md`](./docs/CONVENTIONS.md) | 문서·결정·데이터·협업 규약 (사람·에이전트 공통 기준) |
 | [`docs/decisions/`](./docs/decisions/) | Architecture Decision Records (ADR D1~D6) |
 
 ## 현재 상태
