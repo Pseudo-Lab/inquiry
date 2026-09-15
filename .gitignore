@@ -1,6 +1,22 @@
 # macOS
 .DS_Store
 
+# 프로젝트 로컬 API 키
+.env
+.env.*
+!.env.example
+
 # Claude Code (로컬 설정은 무시, 공유 스킬은 추적)
 .claude/*
 !.claude/skills/
+
+# Python 프로토타입
+__pycache__/
+*.pyc
+prototypes/**/out/
+
+# handoff 문서 (git에 올리지 않음 — 로컬/에이전트 인계용)
+docs/handoff/
+
+# 정리한 이전 시안의 로컬 복구본
+.omx/archive/
