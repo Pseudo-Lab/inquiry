@@ -101,10 +101,10 @@ SCENARIOS = {
 }
 
 
-def render(name, width=100, color=False):
-    if name not in SCENARIOS or width not in (80, 100, 120):
-        raise ValueError('Choose continue/merge/endings and width 80/100/120.')
-    scenario = SCENARIOS[name]
+def render(name, width=100, color=False, *, scenario=None, height=None):
+    if (scenario is None and name not in SCENARIOS) or width not in (80, 100, 120, 160):
+        raise ValueError('Choose continue/merge/endings and width 80/100/120/160.')
+    scenario = SCENARIOS[name] if scenario is None else scenario
     nodes = {node.id: node for node in scenario['nodes']}
     result = []
     widths = (5, 7, width - 41, 16)
@@ -163,7 +163,7 @@ def render(name, width=100, color=False):
     result.append(colorize(top).rstrip('\n') if color else top)
     wide('inquiry / Branch log · ' + scenario['title'])
     wide('세션이 바뀌어도 같은 실수를 막으려면?')
-    wide(f'Static preview · Sample data · {len(nodes)} nodes · Focus {scenario["focus"]}')
+    wide(scenario.get('summary', f'Static preview · Sample data · {len(nodes)} nodes · Focus {scenario["focus"]}'))
     rule('├', '┬', '┤')
     table('GRAPH', 'ID', 'HYPOTHESIS', 'STATUS')
     rule('├', '┼', '┤')
@@ -181,7 +181,12 @@ def render(name, width=100, color=False):
     for line in scenario['detail']:
         wide(line)
     wide('')
-    wide('Preview only · No state changes · Top to bottom = ancestry')
+    if height is not None:
+        if len(result) > height - 2:
+            raise ValueError('Content does not fit the requested height.')
+        while len(result) < height - 2:
+            wide('')
+    wide(scenario.get('footer', 'Preview only · No state changes · Top to bottom = ancestry'))
     result.append(colorize(bottom).rstrip('\n') if color else bottom)
     return '\n'.join(result) + '\n'
 
@@ -189,7 +194,7 @@ def render(name, width=100, color=False):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--scenario', choices=SCENARIOS, default='continue')
-    parser.add_argument('--width', type=int, choices=(80, 100, 120), default=100)
+    parser.add_argument('--width', type=int, choices=(80, 100, 120, 160), default=100)
     parser.add_argument('--color', choices=('auto', 'always', 'never'), default='auto')
     parser.add_argument('--out', type=Path)
     args = parser.parse_args()
