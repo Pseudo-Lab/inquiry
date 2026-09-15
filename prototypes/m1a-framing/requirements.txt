@@ -1,0 +1,4 @@
+# M1a Framing Session 프로토타입
+# Responses API + structured outputs. 2.48.0으로 오프라인 연동 검증.
+openai>=2.48.0,<3
+python-dotenv>=1.0,<2
