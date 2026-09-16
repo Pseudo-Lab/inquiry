@@ -32,8 +32,11 @@ python3 -m unittest discover -s prototypes/m1b-layout -v
 - `branch_scenarios.py`: 연속·합류·종료 예시와 CLI
 - `presentation.py`: 셀 폭, 상태 표시, 컬러 표현
 - `test_branch_scenarios.py`: 열 정렬·폭·부모·합류·종료 검사
+- `scale.py`: 10/30/100개 연결 fixture, 문맥을 보존한 페이지 보기와 9조합 생성
+- `test_scale.py`: 정확한 개수·부모 연결·전체 페이지 회수·행/열 검사
 - `preview.m`: macOS 이미지 생성 보조 도구
 - `out/scenarios/`: 선택 버전의 텍스트·ANSI·PNG
+- `out/scale/`: 9조합의 전체 페이지와 manifest
 - `out/preview`: 로컬에서 빌드한 이미지 생성기
 
 ## 이미지 보기
@@ -54,8 +57,20 @@ prototypes/m1b-layout/out/preview prototypes/m1b-layout/out/scenarios/continue-1
 
 [선택안 및 검증 기록](../../docs/reports/m1b-branch-scenarios.md)을 따른다.
 수동 배치한 가짜 데이터이며 임의 DAG, 실제 상태 전이, 클릭/키보드 탐색은 구현하지 않았다.
-전체 10/30/100노드 매트릭스를 선택안에 적용하는 검증도 아직 남아 있다.
-이전 시안의 100노드 기능이 현재 선택안에 구현됐다고 해석하지 않는다.
+현재 선택안의 80/120/160열 × 10/30/100노드 자동 검증은 완료했다.
+연결된 작은 묶음 단위로 페이지를 나누며, 100개에서는 18페이지다. 임의 DAG의 교차선 배치와 실제 탐색 편의성까지 검증한 것은 아니다.
+
+## 규모 검증 화면
+
+```bash
+python3 prototypes/m1b-layout/scale.py --nodes 100 --width 80 --color always
+python3 prototypes/m1b-layout/scale.py --nodes 100 --width 80 --page 3 --color always
+python3 prototypes/m1b-layout/scale.py --matrix prototypes/m1b-layout/out/scale
+```
+
+페이지의 첫 노드는 이전 묶음의 연결점으로 반복된다. 전체 개수에는 중복 계산하지 않는다.
+페이지 밖 노드는 hidden 수에 포함되며 다른 페이지에서 모두 볼 수 있다. compact는 빈 연결 행을 줄이되 노드와 종료 기록은 보존한다.
+전체 결과와 이미지: [규모 검증 보고서](../../docs/reports/m1b-scale-eval.md).
 
 ## 이전 시안 보관
 
