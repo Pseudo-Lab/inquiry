@@ -36,21 +36,24 @@ python3 -m unittest discover -s prototypes/m1b-layout -v
 - `test_scale.py`: 정확한 개수·부모 연결·전체 페이지 회수·행/열 검사
 - `preview.m`: macOS 이미지 생성 보조 도구
 - `out/scenarios/`: 선택 버전의 텍스트·ANSI·PNG
+- `assets/`: GitHub에서도 볼 수 있도록 저장소에 포함한 대표 이미지 3개
 - `out/scale/`: 9조합의 전체 페이지와 manifest
 - `out/preview`: 로컬에서 빌드한 이미지 생성기
 
 ## 이미지 보기
 
-- [연속·분화](out/scenarios/continue-100.png)
-- [합류·후속 탐색](out/scenarios/merge-100.png)
-- [반박·종료](out/scenarios/endings-100.png)
+- [연속·분화](assets/continue-100.png)
+- [합류·후속 탐색](assets/merge-100.png)
+- [반박·종료](assets/endings-100.png)
 
 PNG는 실제 터미널 캡처가 아닌 셀 그리드 렌더링이다. 실제 폰트/Unicode 설정에 따라 표시가 달라질 수 있다.
-out 폴더는 Git에서 제외되며 아래 명령으로 이미지를 다시 만든다(macOS).
+대표 이미지 3개는 `assets/`에서 Git으로 관리한다. 나머지 생성물은 Git에서 제외되는 `out/`에 둔다.
+대표 이미지를 갱신하려면 먼저 위의 텍스트·ANSI 생성 명령을 실행한 뒤 다음을 실행한다(macOS).
 
 ```bash
 clang -fobjc-arc -fno-modules -framework AppKit prototypes/m1b-layout/preview.m -o prototypes/m1b-layout/out/preview
 prototypes/m1b-layout/out/preview prototypes/m1b-layout/out/scenarios/continue-100.ansi prototypes/m1b-layout/out/scenarios/merge-100.ansi prototypes/m1b-layout/out/scenarios/endings-100.ansi
+cp prototypes/m1b-layout/out/scenarios/continue-100.png prototypes/m1b-layout/out/scenarios/merge-100.png prototypes/m1b-layout/out/scenarios/endings-100.png prototypes/m1b-layout/assets/
 ```
 
 ## 범위와 결정

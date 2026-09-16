@@ -20,19 +20,19 @@ GRAPH / ID / HYPOTHESIS / STATUS를 고정 폭 열로 나누고 내부 구분선
 
 ## 1. Continue & fork
 
-[100열 이미지](../../prototypes/m1b-layout/out/scenarios/continue-100.png)
+[100열 이미지](../../prototypes/m1b-layout/assets/continue-100.png)
 
 ROOT→H-001→H-002 주계보 옆에서 H-003→H-007→H-012 지지 가지가 계속된다. H-007에서 H-011 대안 가지가 다시 갈라진다. 세 개의 열린 선을 남겨 아직 탐색 중임을 표시한다. H-011과 H-012는 형제다.
 
 ## 2. Merge & continue
 
-[100열 이미지](../../prototypes/m1b-layout/out/scenarios/merge-100.png) · [80열](../../prototypes/m1b-layout/out/scenarios/merge-80.png)
+[100열 이미지](../../prototypes/m1b-layout/assets/merge-100.png) · 80열 이미지는 로컬 `prototypes/m1b-layout/out/scenarios/merge-80.png`로 재생성한다.
 
 H-002와 H-007을 두 부모로 하는 새 통합 가설 SYN-01을 만든 상황이다. 입력 가설은 Synthesized 상태로 이력에 남고, SYN-01은 Exploring 상태이며 그 뒤 H-008 탐색이 이어진다. 합류 기호 ◆는 새 통합 노드의 구조를 표시하며, 노드 자체의 상태는 오른쪽 열로 별도 표시한다. 새 노드를 곧바로 synthesized 종료 상태로 취급하지 않는다.
 
 ## 3. Refuted & closed
 
-[100열 이미지](../../prototypes/m1b-layout/out/scenarios/endings-100.png) · [80열](../../prototypes/m1b-layout/out/scenarios/endings-80.png)
+[100열 이미지](../../prototypes/m1b-layout/assets/endings-100.png) · 80열 이미지는 로컬 `prototypes/m1b-layout/out/scenarios/endings-80.png`로 재생성한다.
 
 - × Refuted: 반례로 반박된 H-007 가지의 선을 끝낸다. 자동 재개는 하지 않는다.
 - ⊘ Closed by user: 이번 범위 밖이라 사람이 종료한 H-005. 거짓이라는 판정과 구분한다.
