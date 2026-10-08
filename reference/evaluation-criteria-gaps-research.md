@@ -1,6 +1,6 @@
 # 평가 기준 공백(Layer 3) 리서치 보고서 — ACH·Calibration·LLM-judge 편향
 
-2026-10-08. [평가 기준 정리](#) Layer 3에서 "아직 근거 없음"으로 남겼던 3개 공백을 deep-research로 조사. 5각도 · 23출처 fetch · 98주장 추출 · **25주장 검증(24확증 / 1기각)**. 선행: [분기 방법론 리서치](logical-branching-methodology-research.md) · 대상 설계: [ADR-D3 confidence 모델](../docs/decisions/ADR-D3-confidence-model.md) · [assess-hypothesis 스킬](../.claude/skills/assess-hypothesis/SKILL.md).
+2026-10-08. [평가 기준 정리](#) Layer 3에서 "아직 근거 없음"으로 남겼던 3개 공백을 deep-research로 조사. 5각도 · 23출처 fetch · 98주장 추출 · **25주장 검증(24확증 / 1기각)**. 선행: [분기 방법론 리서치](logical-branching-methodology-research.md) · [LLM 과잉수긍 종합](llm-sycophancy-and-probabilistic-decision.md)(§3.4 sycophancy 근거) · 대상 설계: [ADR-D3 confidence 모델](../docs/decisions/ADR-D3-confidence-model.md) · [assess-hypothesis 스킬](../.claude/skills/assess-hypothesis/SKILL.md).
 
 > ⚠️ **핵심 반전:** 세 공백 모두 "확립된 방법론으로 채울 수 있다"지만, **각 방법론이 중대한 경험적 한계를 동반**한다. 특히 (1) ACH의 반증 채점은 효과가 **입증되지 않았고** 순수 반증은 역편향을 부르며, (3) LLM 과신 증거는 오히려 **ADR-D3의 현재 선택(확률 대신 앵커 등급)을 정당화**한다. 즉 이 리서치는 "새 기능을 추가하라"가 아니라 **"현 설계가 옳고, 어디를 조심스럽게 보강할지"**를 알려준다.
 
@@ -73,6 +73,13 @@ risk of bias · inconsistency · indirectness · imprecision · publication bias
 ### 3.3 언어화 신뢰는 miscalibrated이나 프롬프트 기법이 좌우
 **출처:** Yang, Tsai & Yamada (2024) [arXiv:2412.14737]; Tian et al. (2023, EMNLP "Just Ask for Calibration"). 언어화 신뢰는 과신 경향이나, **구조화된 confidence-elicitation 프롬프트**가 교정을 측정 가능하게 개선(ECE ~50%↓). 복수 후보 동시 제시 후 채점도 개선.
 
+### 3.4 Sycophancy — 반박 시 채점을 뒤집는 편향 (Inquiry에 가장 치명적)
+**출처:** 프로젝트 초기 리서치 [LLM 과잉수긍·확률적 의사결정 종합](llm-sycophancy-and-probabilistic-decision.md) (2026-09-08) · 원출처: Sharma et al. (2024, ICLR) *Towards Understanding Sycophancy in Language Models* [arXiv:2310.13548].
+
+과신(§3.1)·확장추론(§3.2)과 **별개의** 편향: LLM은 사용자가 반박하면 **정확성보다 동의를 우선**해 답을 바꾼다. 실측 — 반박 시 **~58%** 확률로 답 변경, 그중 **14.66%는 맞던 답을 틀리게**(regressive) 뒤집음. RLHF가 선호 분포를 "반박받으면 수긍" 쪽으로 기울인 결과이며, 내부에 **선형 분리 가능한 feature**로 존재.
+
+**Inquiry에서 왜 치명적:** 사용자가 가설 채점에 "이건 틀린 것 같은데?"라고 하면, agent가 **외부 증거 변화 없이도** 약 58% 확률로 채점을 뒤집고 그중 절반 가까이가 **옳던 채점을 악화**시킬 수 있다. 과신이 "처음부터 자신함"이라면, sycophancy는 "**사후 반박에 무너짐**" — 채점의 *안정성*을 직접 위협한다.
+
 ### ✅ LLM-judge → Inquiry 권고
 1. **현 설계가 정당화됨:** agent-estimate를 raw 확률로 받지 않고 **외부 증거에 앵커된 이산 등급**으로 강제하는 ADR-D3 선택이 과신 문헌에 의해 직접 뒷받침됨. `llm-opinion 금지`는 self-preference/self-enhancement bias의 주 경로(모델이 자기 생성 내용 선호) 차단.
 2. **형제 가설 동시 채점**(CAL-002)이 reference-guided·상대비교로 **단일 가설 확증(§3.2 경고)을 억제** — 유지·강화.
@@ -81,6 +88,7 @@ risk of bias · inconsistency · indirectness · imprecision · publication bias
    - **position bias:** 형제 가설 제시 **순서 스왑/무작위화** 필요(미도입).
    - **잔여 과신:** **다중 심판 패널(multi-judge, PoLL류)**로 완화(비용 대비 효과는 열린 질문).
    - 채점 프롬프트를 **구조화 앵커 루브릭 + 외부 증거 참조** 형식으로 표준화.
+   - **sycophancy(§3.4) 차단:** 사용자 반박만으로 채점을 바꾸지 말 것 — **새 외부 독립 증거가 있을 때만** 등급 변경을 허용하는 규칙을 assess-hypothesis에 명시(`llm-opinion 금지`의 반박 버전). 재채점 시 이전 등급·evidence_ref를 보여주고 "무엇이 바뀌었나"를 증거로 요구.
 
 ---
 
@@ -93,6 +101,7 @@ risk of bias · inconsistency · indirectness · imprecision · publication bias
 | confidence 범위 | "인접 등급 불확실성" | GRADE **5개 하향 도메인을 범위 확장 트리거**로 | 중 |
 | 5축 집계 | 미정 | **공백 유지** — 등급→정답률 매핑 선행, M3 실측 후 | 낮(M3) |
 | agent-estimate 신뢰성 | 앵커+외부증거+형제채점 | **정당화됨** + position 스왑·다중심판·긴CoT 자기채점 지양 | 중 |
+| **재채점 안정성(sycophancy)** | 규칙 없음 | 반박만으로 등급 변경 금지 — **새 외부 증거 있을 때만** 변경(§3.4) | **중상** |
 | 채점 UI/프롬프트 | — | 가설=행 레이아웃, 구조화 앵커 프롬프트 | 낮 |
 
 **결론:** ADR-D3의 핵심 선택 3가지 — ① 확률 추정 대신 **앵커 등급**, ② **범위=불확실성**, ③ **외부 독립 증거만** — 은 이번 리서치로 **강하게 정당화**됐다(GRADE 정합 + LLM 과신 경고). 추가할 것은 새 패러다임이 아니라 **조심스러운 보강**(균형 축·GRADE 트리거·편향 완화 장치)이며, **5축 집계 함수만 진짜 공백으로 남아 M3 실측까지 미룬다.**
