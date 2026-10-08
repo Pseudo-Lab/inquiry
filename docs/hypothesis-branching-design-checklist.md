@@ -1,7 +1,7 @@
 # 가설 분기 설계 체크리스트
 
 > 목적: Inquiry가 하나의 질문에서 경쟁 가설을 **생성·분기**할 때(framing / branch / synthesize 연산) 따라야 할, **근거 있는 설계 기준**. 채점(평가) 기준이 아니라 **생성 시점의 설계 기준**이다.
-> 근거: [로지컬 분기 방법론 리서치](reports/logical-branching-methodology-research.md) · 관련: [PRODUCT-CONCEPT §7·§9](PRODUCT-CONCEPT.md) · [ADR-D2 DAG-only](decisions/ADR-D2-graph-model.md) · 채점은 [assess-hypothesis 스킬](../.claude/skills/assess-hypothesis/SKILL.md)로 분리.
+> 근거: [로지컬 분기 방법론 리서치](../reference/logical-branching-methodology-research.md) · 관련: [PRODUCT-CONCEPT §7·§9](PRODUCT-CONCEPT.md) · [ADR-D2 DAG-only](decisions/ADR-D2-graph-model.md) · 채점은 [assess-hypothesis 스킬](../.claude/skills/assess-hypothesis/SKILL.md)로 분리.
 > 상태: v0 초안 (2026-10-08). 사례가 쌓이면 교정.
 
 ---

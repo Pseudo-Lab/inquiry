@@ -1,6 +1,6 @@
 # 평가 기준 공백(Layer 3) 리서치 보고서 — ACH·Calibration·LLM-judge 편향
 
-2026-10-08. [평가 기준 정리](#) Layer 3에서 "아직 근거 없음"으로 남겼던 3개 공백을 deep-research로 조사. 5각도 · 23출처 fetch · 98주장 추출 · **25주장 검증(24확증 / 1기각)**. 선행: [분기 방법론 리서치](logical-branching-methodology-research.md) · 대상 설계: [ADR-D3 confidence 모델](../decisions/ADR-D3-confidence-model.md) · [assess-hypothesis 스킬](../../.claude/skills/assess-hypothesis/SKILL.md).
+2026-10-08. [평가 기준 정리](#) Layer 3에서 "아직 근거 없음"으로 남겼던 3개 공백을 deep-research로 조사. 5각도 · 23출처 fetch · 98주장 추출 · **25주장 검증(24확증 / 1기각)**. 선행: [분기 방법론 리서치](logical-branching-methodology-research.md) · 대상 설계: [ADR-D3 confidence 모델](../docs/decisions/ADR-D3-confidence-model.md) · [assess-hypothesis 스킬](../.claude/skills/assess-hypothesis/SKILL.md).
 
 > ⚠️ **핵심 반전:** 세 공백 모두 "확립된 방법론으로 채울 수 있다"지만, **각 방법론이 중대한 경험적 한계를 동반**한다. 특히 (1) ACH의 반증 채점은 효과가 **입증되지 않았고** 순수 반증은 역편향을 부르며, (3) LLM 과신 증거는 오히려 **ADR-D3의 현재 선택(확률 대신 앵커 등급)을 정당화**한다. 즉 이 리서치는 "새 기능을 추가하라"가 아니라 **"현 설계가 옳고, 어디를 조심스럽게 보강할지"**를 알려준다.
 

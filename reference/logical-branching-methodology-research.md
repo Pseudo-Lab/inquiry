@@ -80,7 +80,7 @@ Peirce 의미에서 추론의 **"가설 생성" 측면만이 본래적 abduction
 
 > *"identification of structural components does not per se allow us to assess content-wise plausibility of the made argument."*
 
-**Inquiry 대응(⚠️ 가장 중요한 경고):** 가설 채점을 **"구조 충족도"와 "내용적 설득력"으로 분리**해야 한다. 5축 중 `plausibility`·`evidence_strength`는 구조 탐지로 환원되지 않는 **실질 판단**이며, 이것이 자동(LLM) 채점이 과신하기 쉬운 지점이다 — 이번 [모델 품질 평가](m2-model-quality-eval.md)에서 "평가 주체가 에이전트"라는 한계를 명시한 것과 정확히 같은 경계.
+**Inquiry 대응(⚠️ 가장 중요한 경고):** 가설 채점을 **"구조 충족도"와 "내용적 설득력"으로 분리**해야 한다. 5축 중 `plausibility`·`evidence_strength`는 구조 탐지로 환원되지 않는 **실질 판단**이며, 이것이 자동(LLM) 채점이 과신하기 쉬운 지점이다 — 이번 [모델 품질 평가](../docs/reports/m2-model-quality-eval.md)에서 "평가 주체가 에이전트"라는 한계를 명시한 것과 정확히 같은 경계.
 
 ### B2. HypoAgents — 다축 사전 점수 + 베이지안 사후 갱신 + 엔트로피 기반 심화
 **출처:** Duan, Y. et al. (2025). *HypoAgents.* [arXiv:2508.01746](https://arxiv.org/pdf/2508.01746)
