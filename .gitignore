@@ -23,3 +23,7 @@ prototypes/**/out/
 
 # handoff 문서 (git에 올리지 않음 — 로컬/에이전트 인계용)
 docs/handoff/
+
+# 진행/실험 과정 문서 — git에는 확정 기능·결정(ADR)·검증된 reference만 둔다.
+# reports는 로컬 보존(작업 기록)하되 추적하지 않는다.
+docs/reports/
