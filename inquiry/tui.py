@@ -17,8 +17,13 @@ from rich import box
 from rich.cells import cell_len
 from rich.table import Table
 from rich.text import Text
+from textual import constants as _textual_constants
 from textual import work
 from textual.worker import get_current_worker
+
+# env가 늦게 설정돼도(다른 모듈이 textual을 먼저 import) 확실히 끈다 —
+# 드라이버는 이 상수를 시작 시점(런타임)에 읽는다.
+_textual_constants.DISABLE_KITTY_KEY = True
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical, VerticalScroll
