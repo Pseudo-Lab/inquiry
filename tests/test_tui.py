@@ -112,6 +112,18 @@ class TUIOperationTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(app.pending)
         self.assertEqual(len(Commands(root).state().hypotheses), 3)  # 부모 1 + 자식 2
 
+    async def test_graph_column_shows_lane_bars_for_merge(self):
+        from tests.operation_fixtures import supported_pair
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        p1, p2 = supported_pair(tmp.name)
+        Commands(tmp.name).synthesize([p1, p2], '통합', '통합 주장', '두 부모 결합')
+        app = InquiryTUI(tmp.name)
+        async with app.run_test(size=(100, 24)) as pilot:
+            table = app.query_one('#map', DataTable)
+            graph_cells = [str(table.get_row_at(i)[0]) for i in range(table.row_count)]
+        self.assertTrue(any('│' in c for c in graph_cells), f'레인 바 없음: {graph_cells}')
+
     async def test_synthesize_marks_two_parents_then_accept_creates_node(self):
         from tests.operation_fixtures import supported_pair, synthesis_output
         tmp = tempfile.TemporaryDirectory()

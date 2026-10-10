@@ -14,6 +14,7 @@ from textual.containers import Vertical
 from textual.widgets import DataTable, Footer, Header, Input, Static
 
 from .commands import Commands
+from .graphlog import lane_rows, render_row
 from .operations import OperationsService
 
 # 실루엣이 서로 다른 기호 — 색 없이(흑백)도 구분된다(Gate B 항목3 후속).
@@ -113,11 +114,14 @@ class InquiryTUI(App):
         table = self.query_one("#map", DataTable)
         keep = table.cursor_row if select is None else select
         table.clear(columns=True)
-        table.add_columns("", "ID", "HYPOTHESIS", "STATUS")
-        for h in self.nodes:
+        table.add_columns("GRAPH", "ID", "HYPOTHESIS", "STATUS")
+        lanes = lane_rows(self.nodes)
+        for idx, h in enumerate(self.nodes):
             sym, label = STATUS.get(h.status, ('?', h.status))
-            mark = "•" if h.id in self.marked else " "
-            table.add_row(f"{mark}{sym}", h.id, h.title, f"{sym} {label}", key=h.id)
+            cells, col = lanes[idx]
+            graph = render_row(cells, col, sym)
+            prefix = "•" if h.id in self.marked else ""
+            table.add_row(f"{prefix}{graph}", h.id, h.title, f"{sym} {label}", key=h.id)
         if self.nodes:
             row = min(keep or 0, len(self.nodes) - 1)
             table.move_cursor(row=row)
