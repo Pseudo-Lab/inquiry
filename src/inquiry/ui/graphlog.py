@@ -74,8 +74,10 @@ def graph_rows(nodes):
                 lanes[slot] = kid
                 opened.append(slot)
             if opened:
-                # │╲ 전환 행: 부모 레인은 이어지고 새 레인이 대각선으로 열린다
-                glyphs = {i: '╲' for i in opened}
+                # │╲ 전환 행: 부모 레인은 이어지고 새 레인이 대각선으로 열린다.
+                # 재사용된 빈 레인이 부모 왼쪽일 수 있다 — 그때는 ╱ (git log처럼
+                # 방향을 따라 긋지 않으면 분기가 끊겨 보인다, EXT-S1 관찰).
+                glyphs = {i: ('╲' if i > col else '╱') for i in opened}
                 glyphs[col] = '│'
                 rows.append({'kind': 'fork', 'cells': snapshot(glyphs),
                              'parent': n.id})
