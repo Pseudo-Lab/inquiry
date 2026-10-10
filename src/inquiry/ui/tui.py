@@ -275,8 +275,22 @@ class InquiryTUI(App):
             self.query_one("#details", Static).update("아직 가설이 없습니다.")
             return
         self.sel = max(0, min(self.sel, len(self.nodes) - 1))
-        gv.update(self._build_table())
+        table, sel_line = self._build_table()
+        gv.update(table)
         self._show(self.nodes[self.sel].id)
+        # 대규모 그래프에서 선택이 뷰포트 밖으로 나가는 문제(m1b 18페이지 문제의
+        # TUI 버전): 렌더 후 선택 행이 보이도록 지도 스크롤을 따라 붙인다.
+        self.call_after_refresh(self._scroll_selection_into_view, sel_line)
+
+    def _scroll_selection_into_view(self, line):
+        wrap = self.query_one("#mapwrap", VerticalScroll)
+        height = wrap.size.height
+        if height <= 0 or line is None:
+            return
+        top = wrap.scroll_offset.y
+        # HYPOTHESIS 열 줄바꿈으로 라인 추정이 어긋날 수 있어 가장자리 여유 2행.
+        if line < top + 2 or line > top + height - 3:
+            wrap.scroll_to(y=max(0, line - height // 2), animate=False)
 
     def _build_table(self):
         t = Table(box=box.ROUNDED, expand=True, pad_edge=False, padding=(0, 1),
@@ -290,18 +304,24 @@ class InquiryTUI(App):
         t.add_column("STATUS", no_wrap=True)
         by_id = {n.id: n for n in self.nodes}
         idx = {n.id: i for i, n in enumerate(self.nodes)}
+        # 표 상단 고정 라인: 제목 + 윗테두리 + 헤더 + 구분선 = 4 (box.ROUNDED+title)
+        sel_line, data_row = None, 4
         for row in graph_rows(self.nodes):
             if row['kind'] == 'fork':
                 t.add_row(self._edge_cell(row['cells']), "",
                           Text("Fork", style="grey50"), "")
+                data_row += 1
                 continue
             if row['kind'] == 'merge':
                 t.add_row(self._edge_cell(row['cells']), "",
                           Text("Merge / " + " + ".join(row['parents']), style="grey50"), "")
+                data_row += 1
                 continue
             h = by_id[row['id']]
             marked = h.id in self.marked
             selected = (idx[h.id] == self.sel)
+            if selected:
+                sel_line = data_row
             # GRAPH 열: 노드(*)·머지(◆)·분기선만, 레인별 색. 상태 기호 없음.
             glyph = '◆' if row['merge'] else '*'
             if h.status == 'root':
@@ -315,7 +335,8 @@ class InquiryTUI(App):
                       Text(("▸ " if selected else "  ") + h.title),
                       status_cell,   # 상태 기호·색은 STATUS 열에만
                       style=("on grey30" if selected else None))
-        return t
+            data_row += 1
+        return t, sel_line
 
     def _node_cell(self, cells, col, glyph, marked=False):
         """노드 행: col에 */◆, 나머지 활성 레인은 │ — 레인별 색(머지 전까지 유지)."""
