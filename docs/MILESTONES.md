@@ -1,8 +1,8 @@
 # Inquiry 마일스톤
 
 > 관련 문서: [`PRODUCT-CONCEPT.md`](./PRODUCT-CONCEPT.md) · [`REVIEW.md`](./REVIEW.md)
-> 작성일: 2026-08-28
-> 상태: 초안 (개발 전)
+> 작성일: 2026-08-28 · 갱신: 2026-10-10
+> 상태: **M0~M2 완료.** 다음은 M3(OSS MVP). M2 Exit(§18 시나리오 완주) 충족 — 아래 M2 상태 참조.
 
 ## 원칙
 
@@ -78,14 +78,20 @@ M0 결정  ─▶  M1a Framing ─┐
 
 > 예상 소요: **~3~4주**
 
-> 상태: **M2-4B Deepen·Challenge·Synthesize와 Task 5 경계 검증 완료**. 전체277개 테스트, fake chat/CLI 여정, 독립 코드 리뷰 APPROVE를 확인했다. 실제 모델 품질 평가는 남아 있으며, Gate B/TUI는 아직 시작하지 않는다. [최신 검증](reports/m2-4b-operations-eval.md) · [계획](superpowers/plans/2026-09-21-m2-4b-remaining-operations.md). [ADR-D7](decisions/ADR-D7-staged-m2-gates.md)에 따라 Gate B 해소 후 TUI를 통합한다.
+> 상태: **M2 완료 — Exit 충족 (2026-10-10).** 원문 §18 시나리오 1~10을 CLI·chat·TUI로 처음부터 끝까지 완주할 수 있다. 완료 항목:
+> - 잔여 기능: 체크박스 Actions, Weekly preview(`inquiry weekly`), Markdown export(`inquiry write weekly` — §14 추적 frontmatter + 표 중심 레이아웃) (PR #8)
+> - M2-6 TUI 통합: git-log 그래프(spine 레인 배치, PR #13) · 한글 IME · 상태색 · 실API deepen/challenge accept/reject · 대규모(100노드+) follow-scroll
+> - Gate B 사람 사용성 검증 완료: TUI 실사용(색·실API), 외부인 Framing 검증 1회차([프로토콜·기록](reports/m2-gate-b-external-framing-protocol.md)) — 발견 결함(branch 수락 모호·chat 가독성·그래프 끊김)은 수정 완료(PR #12·#13)
+> - 평가기준 리서치 반영: ADR-D3 재채점 안정성·축 역할, assess-hypothesis GRADE 트리거 (PR #9)
+>
+> M3 이관: 외부인 검증 2회차(개선 효과 재측정), 근거 기반 가설 제안(외부 레퍼런스 연동) — 아래 M3 참조.
 
-2026-09-21 이전 인수 기록: **M2-4B-2 Deepen 구현과 CLI/chat 연결 완료**, 당시 전체251개 자동 테스트·SDK 없는28개·합성 PTY 검증과 최종 리뷰 APPROVE. [Deepen 결과](reports/m2-4b2-deepen-eval.md). 최신 Challenge 상태는 위 상태 요약을 따른다.
+2026-09-21 이전 인수 기록: **M2-4B Deepen·Challenge·Synthesize와 Task 5 경계 검증 완료**, 당시 전체277개 테스트·fake chat/CLI 여정·독립 리뷰 APPROVE. [검증](reports/m2-4b-operations-eval.md) · [계획](superpowers/plans/2026-09-21-m2-4b-remaining-operations.md). [ADR-D7](decisions/ADR-D7-staged-m2-gates.md)의 단계적 게이트(Gate B 해소 후 TUI 통합)를 따라 진행했다.
 
 - **전제:** M0 확정 및 Gate A 확인 후 저장·복원 코어 착수. M1a·M1b 잔여 UX와 TUI 선정은 병행하며 Gate B 확인 전에는 M2-6 TUI 통합을 시작하지 않는다(2026-09-17 사용자 결정, D7). D1(이벤트 로그)·D5(상태 머신)가 여기서 처음 코드화.
 - **범위:** `fork`·`deepen`·`challenge`·`synthesize`·`close` 5연산 + 상태 전이 + 노드 상세 + 체크박스 Actions + Weekly preview + Markdown export. 단일 사용자·로컬.
 - **노드 상세 범위:** MVP 탐구 흐름에 필요한 기본 정보 조회까지만 포함한다. 지도에서 마우스 클릭·키보드로 노드를 선택해 상세를 탐색하는 UX와 브랜치 전체 요약은 아래 **MVP 이후 상세 탐색 계획**에서 다시 구체화한다.
-- **Exit 기준:** 원문 §18 시나리오 1~10을 처음부터 끝까지 완주.
+- **Exit 기준:** 원문 §18 시나리오 1~10을 처음부터 끝까지 완주. ✅ 충족(위 상태 참조).
 - **명시적 제외:** 컬러·애니메이션, 다중 에이전트, saturation/dedup, 실시간 동기화, presence/claim/lease.
 
 ---
@@ -96,6 +102,9 @@ M0 결정  ─▶  M1a Framing ─┐
 
 - **범위:** 컬러 상태 표현, 저속 활동 애니메이션(진짜 heartbeat 기반, §10), 다중 에이전트 actor, evidence·confidence 출처 관리(D3), 사고 포화·중복 감지(§8), `NOW/NEXT/LATER`, Weekly·research note·decision record 템플릿, Git 버전관리, `--no-color`/`--no-animation`/ASCII fallback.
 - **주의 (REVIEW):** saturation/dedup(§8)은 연구 난이도. **단순 휴리스틱으로 시작**하고 임베딩 기반은 점진 도입. 여기서 완벽을 노리지 말 것.
+- **M2 Gate B에서 이관된 항목:**
+  - [ ] **근거 기반 가설 제안** (EXT-S1 Q2·Q4): Framing/branch 제안 시 외부 레퍼런스(실제 기업·유사 서비스 사례, 문헌)를 근거로 가져와 새 방향을 제시. 리서치 커넥터·evidence 모델(D3)·novelty 축(§8)과 정합하게 설계. 선행 가능분(difference 필드 표시·프롬프트 개선으로 가설 차별성 전달 강화)은 분리 착수 가능.
+  - [ ] **외부인 Framing 검증 2회차**: M2에서 고친 항목(chat 가독성·branch 수락 안내·그래프 연결)의 개선 효과를 다른 참가자로 재측정([프로토콜](reports/m2-gate-b-external-framing-protocol.md) 재사용). 1회차 기준점 Q1·Q6=1점.
 - **Exit 기준:** 외부 사용자가 설치→Framing→탐구→Weekly export를 문서 없이 완주. OSS 공개 가능 수준.
 
 ---
