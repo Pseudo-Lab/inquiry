@@ -121,6 +121,7 @@ def main(argv=None, *, adapter=None):
     subs = parser.add_subparsers(dest='command', required=True)
     chat = subs.add_parser('chat', help='Interactive framing without copying IDs')
     _generation_options(chat)
+    subs.add_parser('tui', help='Textual map of the inquiry graph (read-only)')
     branch = subs.add_parser('branch', help='Human-approved child hypothesis proposals')
     branch_subs = branch.add_subparsers(dest='operation', required=True)
     propose = branch_subs.add_parser('propose')
@@ -274,6 +275,10 @@ def main(argv=None, *, adapter=None):
                              branch_factory=branch_factory, operation_factories=operation_factories,
                              max_output_tokens=args.max_output_tokens,
                              timeout=args.timeout)
+            return
+        if args.command == 'tui':
+            from .tui import run_tui
+            run_tui(args.dir)
             return
         if args.command == 'config':
             from .config import check_config
