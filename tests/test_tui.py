@@ -96,6 +96,48 @@ class TUIOperationTests(unittest.IsolatedAsyncioTestCase):
             self.assertIsNone(app.pending)
             self.assertIn('어댑터가 설정되지 않', str(app.query_one('#status', Static).render()))
 
+    async def test_fork_proposes_candidates_then_accept_creates_children(self):
+        from tests.branch_fixtures import branch_output
+        root = self._make()
+        factory = lambda: (FakeAdapter([RunSignal('succeeded', proposal=branch_output())]), 'fake')
+        app = InquiryTUI(root, op_factories={'fork': factory})
+        async with app.run_test(size=(100, 24)) as pilot:
+            app._start_fork()
+            await app._op_worker.wait()
+            await pilot.pause()
+            self.assertEqual(app.pending_kind, 'branch')
+            self.assertIn('fork 제안', str(app.query_one('#status', Static).render()))
+            app._accept('1 2')   # 후보 2개만 선택 승인
+            await pilot.pause()
+        self.assertIsNone(app.pending)
+        self.assertEqual(len(Commands(root).state().hypotheses), 3)  # 부모 1 + 자식 2
+
+    async def test_synthesize_marks_two_parents_then_accept_creates_node(self):
+        from tests.operation_fixtures import supported_pair, synthesis_output
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        p1, p2 = supported_pair(tmp.name)   # 두 supported 부모
+        factory = lambda: (FakeAdapter([RunSignal('succeeded', proposal=synthesis_output())]), 'fake')
+        app = InquiryTUI(tmp.name, op_factories={'synthesize': factory})
+        async with app.run_test(size=(100, 24)) as pilot:
+            app._dispatch('synthesize')   # 아직 mark 없음 → 거부
+            await pilot.pause()
+            self.assertIn('2개 이상', str(app.query_one('#status', Static).render()))
+            app._find(p1); app._toggle_mark()
+            app._find(p2); app._toggle_mark()
+            self.assertEqual(len(app.marked), 2)
+            app._start_synth()
+            await app._op_worker.wait()
+            await pilot.pause()
+            self.assertEqual(app.pending_kind, 'op')
+            before = len(Commands(tmp.name).state().hypotheses)
+            app._accept()
+            await pilot.pause()
+            self.assertEqual(len(app.marked), 0)   # 승인 후 표시 해제
+        state = Commands(tmp.name).state()
+        self.assertEqual(len(state.hypotheses), before + 1)   # 통합 가설 1개 생성
+        self.assertTrue(any(h.status == 'synthesized' for h in state.hypotheses.values()))
+
     async def test_find_jumps_cursor_to_node_id(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)

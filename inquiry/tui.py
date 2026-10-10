@@ -29,8 +29,8 @@ STATUS = {
 }
 MODEL_OPS = ('deepen', 'challenge')
 LEGEND = "  ".join(f"{sym} {label}" for sym, label in STATUS.values())
-HELP = ("명령: start · deepen · challenge · accept · reject · cancel · "
-        "find <ID> · legend · quit")
+HELP = ("명령: start · deepen · challenge · fork · mark · synthesize · "
+        "accept · reject · cancel · find <ID> · legend · quit")
 
 
 def _order(state):
@@ -83,6 +83,8 @@ class InquiryTUI(App):
         # op_factories: {operation: adapter_factory()->(adapter, model)}. None → 실행 불가(읽기).
         self.op_factories = op_factories or {}
         self.pending = None            # 사람 승인 대기 중인 proposal
+        self.pending_kind = None       # 'op' | 'branch'
+        self.marked = set()            # synthesize 대상으로 표시한 가설 ID
         self._op_worker = None
         self._reload_state()
 
@@ -114,7 +116,8 @@ class InquiryTUI(App):
         table.add_columns("", "ID", "HYPOTHESIS", "STATUS")
         for h in self.nodes:
             sym, label = STATUS.get(h.status, ('?', h.status))
-            table.add_row(sym, h.id, h.title, f"{sym} {label}", key=h.id)
+            mark = "•" if h.id in self.marked else " "
+            table.add_row(f"{mark}{sym}", h.id, h.title, f"{sym} {label}", key=h.id)
         if self.nodes:
             row = min(keep or 0, len(self.nodes) - 1)
             table.move_cursor(row=row)
@@ -168,10 +171,16 @@ class InquiryTUI(App):
             self.exit()
         elif verb in MODEL_OPS:
             self._start_op(verb)
+        elif verb == "fork":
+            self._start_fork()
+        elif verb == "mark":
+            self._toggle_mark()
+        elif verb == "synthesize":
+            self._start_synth()
         elif verb == "start":
             self._transition("start")
         elif verb == "accept":
-            self._accept()
+            self._accept(rest)
         elif verb == "reject":
             self._reject()
         elif verb == "cancel":
@@ -241,23 +250,126 @@ class InquiryTUI(App):
 
     def _op_failed(self, msg):
         self.pending = None
+        self.pending_kind = None
         self._set_status(msg)
 
     def _op_done(self, operation, proposal):
         self.pending = proposal
+        self.pending_kind = 'op'
         self._set_status(
             f"{operation} 제안 생성 — accept 또는 reject (proposal {proposal['id']})")
 
-    def _accept(self):
+    # --- fork (branch) ---
+    def _start_fork(self):
+        hid = self._current_hid
+        if hid is None:
+            return
+        if self._op_worker is not None and not self._op_worker.is_finished:
+            self._set_status("다른 연산이 실행 중입니다. cancel 후 다시 시도하세요.")
+            return
+        factory = self.op_factories.get('fork')
+        if factory is None:
+            self._set_status("fork 어댑터가 설정되지 않았습니다(읽기 전용).")
+            return
+        self._set_status("fork 실행 중… (cancel/Esc로 취소)")
+        self._op_worker = self._run_fork(hid, factory)
+
+    @work(thread=True, exclusive=True, group="op")
+    def _run_fork(self, hid, factory):
+        from .branch import BranchService
+        worker = get_current_worker()
+        try:
+            proposal = BranchService(self.root).propose(
+                hid, adapter_factory=factory, cancelled=lambda: worker.is_cancelled)
+        except BaseException as e:  # noqa: BLE001
+            msg = "취소됨" if worker.is_cancelled else f"fork 실패: {e}"
+            self.call_from_thread(self._op_failed, msg)
+            return
+        self.call_from_thread(self._branch_done, proposal)
+
+    def _branch_done(self, proposal):
+        self.pending = proposal
+        self.pending_kind = 'branch'
+        cands = proposal.get('candidates', [])
+        lines = ["[b]fork 후보[/b] — accept [번호…] (기본 전체) 또는 reject"]
+        for i, c in enumerate(cands, 1):
+            lines.append(f"  {i}. {c['title']} — {c.get('difference', '')}")
+        self.query_one("#details", Static).update("\n".join(lines))
+        self._set_status(f"fork 제안 {len(cands)}개 — accept(전체) / accept 1 2 / reject")
+
+    # --- synthesize (다중 선택) ---
+    def _toggle_mark(self):
+        hid = self._current_hid
+        if hid is None:
+            return
+        if hid in self.marked:
+            self.marked.discard(hid)
+        else:
+            self.marked.add(hid)
+        self._rebuild_table()
+        self._set_status(f"표시됨 {len(self.marked)}개: {', '.join(sorted(self.marked)) or '없음'}")
+
+    def _start_synth(self):
+        if self._op_worker is not None and not self._op_worker.is_finished:
+            self._set_status("다른 연산이 실행 중입니다. cancel 후 다시 시도하세요.")
+            return
+        targets = sorted(self.marked)
+        if len(targets) < 2:
+            self._set_status("synthesize는 mark로 2개 이상 선택해야 합니다.")
+            return
+        factory = self.op_factories.get('synthesize')
+        if factory is None:
+            self._set_status("synthesize 어댑터가 설정되지 않았습니다(읽기 전용).")
+            return
+        self._set_status(f"synthesize 실행 중… {targets} (cancel/Esc로 취소)")
+        self._op_worker = self._run_synth(targets, factory)
+
+    @work(thread=True, exclusive=True, group="op")
+    def _run_synth(self, targets, factory):
+        worker = get_current_worker()
+        try:
+            proposal = OperationsService(self.root).propose(
+                'synthesize', targets, adapter_factory=factory,
+                cancelled=lambda: worker.is_cancelled)
+        except BaseException as e:  # noqa: BLE001
+            msg = "취소됨" if worker.is_cancelled else f"synthesize 실패: {e}"
+            self.call_from_thread(self._op_failed, msg)
+            return
+        self.call_from_thread(self._op_done, 'synthesize', proposal)
+
+    def _selected_candidates(self, args):
+        cands = self.pending.get('candidates', [])
+        tokens = args.split()
+        if not tokens:
+            return [c['candidate_id'] for c in cands]
+        out = []
+        for t in tokens:
+            if t.isdigit() and 1 <= int(t) <= len(cands):
+                cid = cands[int(t) - 1]['candidate_id']
+                if cid not in out:
+                    out.append(cid)
+        return out
+
+    def _accept(self, args=""):
         if not self.pending:
             self._set_status("승인할 제안이 없습니다.")
             return
         try:
-            OperationsService(self.root).accept(self.pending['id'])
+            if self.pending_kind == 'branch':
+                selected = self._selected_candidates(args)
+                if not selected:
+                    self._set_status("유효한 후보 번호가 없습니다.")
+                    return
+                from .branch import BranchService
+                BranchService(self.root).accept(self.pending['id'], selected)
+            else:
+                OperationsService(self.root).accept(self.pending['id'])
         except Exception as e:  # noqa: BLE001
             self._set_status(f"accept 실패: {e}")
             return
         self.pending = None
+        self.pending_kind = None
+        self.marked.clear()
         self._reload_state()
         self._rebuild_table()
         self._set_status("제안 승인 — 저장됨")
@@ -267,11 +379,16 @@ class InquiryTUI(App):
             self._set_status("거부할 제안이 없습니다.")
             return
         try:
-            OperationsService(self.root).reject(self.pending['id'], reason="tui-reject")
+            if self.pending_kind == 'branch':
+                from .branch import BranchService
+                BranchService(self.root).reject(self.pending['id'], reason="tui-reject")
+            else:
+                OperationsService(self.root).reject(self.pending['id'], reason="tui-reject")
         except Exception as e:  # noqa: BLE001
             self._set_status(f"reject 실패: {e}")
             return
         self.pending = None
+        self.pending_kind = None
         self._set_status("제안 거부됨")
 
 

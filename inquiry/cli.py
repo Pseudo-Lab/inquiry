@@ -279,12 +279,13 @@ def main(argv=None, *, adapter=None):
             return
         if args.command == 'tui':
             from .tui import run_tui
-            ops = ('deepen', 'challenge')
+            ops = ('deepen', 'challenge', 'fork', 'synthesize')
             if adapter is not None:
                 op_factories = {op: (lambda a=adapter: (a, args.model or 'fake')) for op in ops}
             else:
                 op_factories = {op: _openai_factory(args.dir, args.model, args.max_output_tokens,
-                                                    args.timeout, purpose=op) for op in ops}
+                                                    args.timeout, purpose=('branch' if op == 'fork' else op))
+                                for op in ops}
             run_tui(args.dir, op_factories=op_factories)
             return
         if args.command == 'config':
