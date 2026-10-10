@@ -42,6 +42,16 @@ class Hypothesis:
 
 
 @dataclass(frozen=True)
+class Action:
+    id: str
+    hypothesis_id: str
+    title: str
+    done: bool = False
+    created_at: str = ''
+    done_at: Optional[str] = None
+
+
+@dataclass(frozen=True)
 class Evidence:
     id: str
     type: str
@@ -87,6 +97,7 @@ class State:
     inquiry: Optional[Inquiry] = None
     framing_sessions: dict = field(default_factory=dict)
     hypotheses: dict = field(default_factory=dict)
+    actions: dict = field(default_factory=dict)
     evidence: dict = field(default_factory=dict)
     evidence_links: tuple = ()
     runs: dict = field(default_factory=dict)

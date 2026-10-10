@@ -3,7 +3,7 @@ from dataclasses import asdict, replace
 
 from inquiry.domain.events import EventValidationError, validate_event
 from inquiry.domain.graph import validate_graph
-from inquiry.domain.model import FramingSession, Inquiry, State, Hypothesis, Evidence, EvidenceLink, Run
+from inquiry.domain.model import FramingSession, Inquiry, State, Hypothesis, Action, Evidence, EvidenceLink, Run
 from inquiry.domain.transitions import validate_transition
 from inquiry.features.framing.state import KINDS as FRAMING_KINDS, apply_change as apply_framing, validate_batch as validate_framing_batch
 from inquiry.features.branch.schema import parent_snapshot
@@ -82,9 +82,25 @@ def _apply_run(change, event, runs, sessions, hypotheses):
     runs[identity] = replace(run, **updates)
 
 
-def _apply_domain(change, event, hypotheses, evidence, links, created, merges):
+def _apply_domain(change, event, hypotheses, actions, evidence, links, created, merges):
     kind = change['kind']
-    if kind == 'HypothesisCreated':
+    if kind == 'ActionCreated':
+        identity = change['action_id']
+        if identity in actions:
+            raise ValueError('Action already exists.')
+        if change['hypothesis_id'] not in hypotheses:
+            raise ValueError('Action references a missing hypothesis.')
+        actions[identity] = Action(identity, change['hypothesis_id'], change['title'],
+                                   created_at=event['at'])
+    elif kind in ('ActionChecked', 'ActionUnchecked'):
+        action = actions.get(change['action_id'])
+        if action is None:
+            raise ValueError('Action does not exist.')
+        if action.done == (kind == 'ActionChecked'):
+            raise ValueError('Action is already in that state.')
+        actions[action.id] = replace(action, done=kind == 'ActionChecked',
+                                     done_at=event['at'] if kind == 'ActionChecked' else None)
+    elif kind == 'HypothesisCreated':
         identity = change['hypothesis_id']
         if identity in hypotheses:
             raise ValueError('Hypothesis already exists.')
@@ -161,7 +177,7 @@ def replay(events):
     inquiry = None
     sessions = {}
     batches = set()
-    hypotheses, evidence, links, runs = {}, {}, [], {}
+    hypotheses, actions, evidence, links, runs = {}, {}, {}, [], {}
     branch_proposals = {}
     operation_proposals, review_notes = {}, {}
     seen = set()
@@ -217,14 +233,16 @@ def replay(events):
                 if inquiry is None:
                     raise ReplayError('Create an inquiry before domain objects.', line)
                 try:
-                    _apply_domain(change, event, hypotheses, evidence, links, created, merges)
+                    _apply_domain(change, event, hypotheses, actions, evidence, links, created, merges)
                 except ValueError as error:
                     raise ReplayError(str(error), line) from error
                 if change['kind'] == 'HypothesisCreated':
                     inquiry = replace(inquiry, hypothesis_ids=inquiry.hypothesis_ids + (change['hypothesis_id'],))
+                elif change['kind'] == 'ActionCreated':
+                    inquiry = replace(inquiry, action_ids=inquiry.action_ids + (change['action_id'],))
         for target, parents in merges.items():
             if parents != set(hypotheses[target].parent_ids):
                 raise ReplayError('All synthesis parents must change together.', line)
     return State(inquiry_id, len(ids), tuple(ids), inquiry, sessions,
-                 hypotheses, evidence, tuple(links), runs, branch_proposals,
+                 hypotheses, actions, evidence, tuple(links), runs, branch_proposals,
                  operation_proposals, review_notes)

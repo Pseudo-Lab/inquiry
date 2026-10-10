@@ -81,6 +81,18 @@ class Commands:
             return [_hypothesis(node_id, title, claim, parents, assumptions, falsified_if)], node_id
         return self._commit(build)
 
+    def add_action(self, target, title):
+        def build(state, at, identity):
+            action_id = _next_id('A', state.actions)
+            return [dict(kind='ActionCreated', action_id=action_id,
+                         hypothesis_id=target, title=title)], action_id
+        return self._commit(build)
+
+    def check_action(self, action_id, done=True):
+        kind = 'ActionChecked' if done else 'ActionUnchecked'
+        return self._commit(lambda state, at, identity:
+                            ([dict(kind=kind, action_id=action_id)], action_id))
+
     def add_evidence(self, target, relation, evidence_type, content, retrieved_at, uri=None):
         def build(state, at, identity):
             evidence_id = _next_id('E', state.evidence)
