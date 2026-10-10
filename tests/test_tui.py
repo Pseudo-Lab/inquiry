@@ -1,11 +1,16 @@
-"""Headless tests for the M2-6 Textual TUI (map + arrow-key Details)."""
+"""Headless tests for the M2-6 Textual TUI (map + arrow-key Details + ops)."""
+import asyncio
 import tempfile
+import threading
 import unittest
 
 from textual.widgets import DataTable, Static
 
+from inquiry.adapter import RunSignal
 from inquiry.commands import Commands
 from inquiry.tui import InquiryTUI
+from tests.fakes import FakeAdapter
+from tests.operation_fixtures import challenge_output
 
 
 class TUITests(unittest.IsolatedAsyncioTestCase):
@@ -48,6 +53,82 @@ class TUITests(unittest.IsolatedAsyncioTestCase):
         async with app.run_test(size=(80, 24)) as pilot:
             self.assertEqual(app.query_one('#map', DataTable).row_count, 0)
             self.assertIn('가설이 없', str(app.query_one('#details', Static).render()))
+
+
+class TUIOperationTests(unittest.IsolatedAsyncioTestCase):
+    def _make(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        c = Commands(tmp.name)
+        c.initialize('seed', {'central_question': 'q'})
+        self.hid = c.add_hypothesis('가설1', '가설1은 성립할 수 있다')  # suggested → op 적격
+        return tmp.name
+
+    async def test_start_command_transitions_highlighted_node(self):
+        root = self._make()
+        app = InquiryTUI(root)
+        async with app.run_test(size=(100, 24)) as pilot:
+            app._dispatch('start')
+            await pilot.pause()
+        self.assertEqual(Commands(root).state().hypotheses[self.hid].status, 'exploring')
+
+    async def test_challenge_proposes_then_accept_persists_note(self):
+        root = self._make()
+        factory = lambda: (FakeAdapter([RunSignal('succeeded', proposal=challenge_output())]), 'fake')
+        app = InquiryTUI(root, op_factories={'challenge': factory})
+        async with app.run_test(size=(100, 24)) as pilot:
+            app._start_op('challenge')
+            await app._op_worker.wait()
+            await pilot.pause()
+            self.assertIsNotNone(app.pending)
+            self.assertIn('제안 생성', str(app.query_one('#status', Static).render()))
+            app._accept()
+            await pilot.pause()
+        self.assertIsNone(app.pending)
+        self.assertEqual(len(Commands(root).state().review_notes), 1)
+
+    async def test_read_only_without_adapter_reports_and_no_change(self):
+        root = self._make()
+        app = InquiryTUI(root)  # op_factories 없음
+        async with app.run_test(size=(100, 24)) as pilot:
+            app._start_op('challenge')
+            await pilot.pause()
+            self.assertIsNone(app.pending)
+            self.assertIn('어댑터가 설정되지 않', str(app.query_one('#status', Static).render()))
+
+    async def test_running_op_can_be_cancelled(self):
+        root = self._make()
+        started, release = threading.Event(), threading.Event()
+
+        class BlockingAdapter:
+            def run(self, request):
+                yield RunSignal('progress', text='w1')
+                started.set()
+                release.wait(3)
+                yield RunSignal('progress', text='w2')  # cancel seen between signals
+                yield RunSignal('succeeded', proposal=challenge_output())
+
+        factory = lambda: (BlockingAdapter(), 'fake')
+        app = InquiryTUI(root, op_factories={'challenge': factory})
+        async with app.run_test(size=(100, 24)) as pilot:
+            app._start_op('challenge')
+            for _ in range(150):
+                if started.is_set():
+                    break
+                await asyncio.sleep(0.02)
+            self.assertTrue(started.is_set(), '워커가 시작되지 않음')
+            app.action_cancel_op()   # worker.cancel() → is_cancelled
+            release.set()
+            # 스레드가 협조적 취소로 끝나며 call_from_thread로 '취소됨'을 보고할 때까지 폴링
+            status = ''
+            for _ in range(150):
+                status = str(app.query_one('#status', Static).render())
+                if '취소됨' in status:
+                    break
+                await asyncio.sleep(0.02)
+        self.assertIn('취소됨', status)
+        self.assertIsNone(app.pending)
+        self.assertEqual(len(Commands(root).state().review_notes), 0)
 
 
 if __name__ == '__main__':

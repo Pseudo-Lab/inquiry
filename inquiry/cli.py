@@ -121,7 +121,8 @@ def main(argv=None, *, adapter=None):
     subs = parser.add_subparsers(dest='command', required=True)
     chat = subs.add_parser('chat', help='Interactive framing without copying IDs')
     _generation_options(chat)
-    subs.add_parser('tui', help='Textual map of the inquiry graph (read-only)')
+    tui = subs.add_parser('tui', help='Textual map + explore operations')
+    _generation_options(tui)
     branch = subs.add_parser('branch', help='Human-approved child hypothesis proposals')
     branch_subs = branch.add_subparsers(dest='operation', required=True)
     propose = branch_subs.add_parser('propose')
@@ -278,7 +279,13 @@ def main(argv=None, *, adapter=None):
             return
         if args.command == 'tui':
             from .tui import run_tui
-            run_tui(args.dir)
+            ops = ('deepen', 'challenge')
+            if adapter is not None:
+                op_factories = {op: (lambda a=adapter: (a, args.model or 'fake')) for op in ops}
+            else:
+                op_factories = {op: _openai_factory(args.dir, args.model, args.max_output_tokens,
+                                                    args.timeout, purpose=op) for op in ops}
+            run_tui(args.dir, op_factories=op_factories)
             return
         if args.command == 'config':
             from .config import check_config

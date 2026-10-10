@@ -1,20 +1,21 @@
-"""M2-6 TUI: Git-log 지도 + 키보드 ↑/↓ 선택 → 하단 Details 패널.
+"""M2-6 TUI: Git-log 지도 + 키보드 ↑/↓ 선택 → Details, 명령 입력 → 연산.
 
-Textual 기반(ADR-D7 Gate B 항목4에서 선정). 읽기 전용 1차 증분:
-저장된 inquiry를 로드해 가설 그래프를 compact 표로 보여주고, 하이라이트된
-가설의 상세(주장·전제·반증조건·근거·종료사유)를 Details에 표시한다.
-연산/명령 입력 연결은 후속 증분.
+Textual 기반(ADR-D7 Gate B 항목4 선정).
+- 읽기: 저장된 inquiry를 compact 표로, 하이라이트 가설 상세를 Details에.
+- 쓰기: 하단 명령으로 start(상태전이)·deepen/challenge(모델 연산)를 실행.
+  모델 연산은 취소 가능한 thread 워커로 돌리고(협조적 cancelled), 결과는
+  사람이 accept/reject로 확정한다(ADR-D5 human-approval).
 """
-from dataclasses import asdict
-
+from textual import work
+from textual.worker import get_current_worker
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical
-from textual.widgets import DataTable, Footer, Header, Static
+from textual.widgets import DataTable, Footer, Header, Input, Static
 
 from .commands import Commands
+from .operations import OperationsService
 
-# 상태 → (기호, 표기). presentation.py(M1b)와 동일 눈금.
 STATUS = {
     'suggested': ('◌', 'Suggested'),
     'exploring': ('◉', 'Exploring'),
@@ -25,10 +26,11 @@ STATUS = {
     'synthesized': ('◆', 'Synthesized'),
     'human-closed': ('⊘', 'Closed'),
 }
+MODEL_OPS = ('deepen', 'challenge')
+HELP = "명령: start · deepen · challenge · accept · reject · cancel · quit"
 
 
 def _order(state):
-    """표시 순서: 생성 순(replay 삽입 순) — 부모가 자식보다 먼저 나온다."""
     return list(state.hypotheses.values())
 
 
@@ -62,18 +64,27 @@ def _detail_text(h, state):
 class InquiryTUI(App):
     CSS = """
     #map { height: 1fr; }
-    #details { height: auto; max-height: 45%; border-top: solid $accent; padding: 0 1; }
+    #details { height: auto; max-height: 40%; border-top: solid $accent; padding: 0 1; }
+    #status { height: 1; color: $text-muted; padding: 0 1; }
+    #cmd { dock: bottom; }
     """
     BINDINGS = [
         Binding("q", "quit", "Quit"),
-        Binding("up", "cursor_up", "위", show=False),
-        Binding("down", "cursor_down", "아래", show=False),
+        Binding("colon", "focus_cmd", "명령", key_display=":"),
+        Binding("escape", "cancel_op", "취소"),
     ]
 
-    def __init__(self, root):
+    def __init__(self, root, op_factories=None):
         super().__init__()
         self.root = root
-        self.state = Commands(root).state()
+        # op_factories: {operation: adapter_factory()->(adapter, model)}. None → 실행 불가(읽기).
+        self.op_factories = op_factories or {}
+        self.pending = None            # 사람 승인 대기 중인 proposal
+        self._op_worker = None
+        self._reload_state()
+
+    def _reload_state(self):
+        self.state = Commands(self.root).state()
         self.nodes = _order(self.state)
 
     def compose(self) -> ComposeResult:
@@ -81,6 +92,8 @@ class InquiryTUI(App):
         with Vertical():
             yield DataTable(id="map", cursor_type="row", zebra_stripes=True)
             yield Static("", id="details")
+        yield Static(HELP, id="status")
+        yield Input(placeholder="명령 (: 로 포커스)", id="cmd")
         yield Footer()
 
     def on_mount(self):
@@ -88,14 +101,21 @@ class InquiryTUI(App):
         self.title = "Inquiry"
         self.sub_title = frame.get("central_question") or (
             self.state.inquiry.seed if self.state.inquiry else "(빈 탐구)")
+        self._rebuild_table(select=0)
+        self.query_one("#map", DataTable).focus()
+
+    def _rebuild_table(self, select=None):
         table = self.query_one("#map", DataTable)
+        keep = table.cursor_row if select is None else select
+        table.clear(columns=True)
         table.add_columns("", "ID", "HYPOTHESIS", "STATUS")
         for h in self.nodes:
             sym, label = STATUS.get(h.status, ('?', h.status))
             table.add_row(sym, h.id, h.title, f"{sym} {label}", key=h.id)
         if self.nodes:
-            table.focus()
-            self._show(self.nodes[0].id)
+            row = min(keep or 0, len(self.nodes) - 1)
+            table.move_cursor(row=row)
+            self._show(self.nodes[row].id)
         else:
             self.query_one("#details", Static).update(
                 "이 탐구에는 아직 가설이 없습니다. framing으로 프레임을 승인하세요.")
@@ -105,10 +125,132 @@ class InquiryTUI(App):
         if h is not None:
             self.query_one("#details", Static).update(_detail_text(h, self.state))
 
+    def _set_status(self, text):
+        self.query_one("#status", Static).update(text)
+
+    @property
+    def _current_hid(self):
+        table = self.query_one("#map", DataTable)
+        row = table.cursor_row
+        if self.nodes and 0 <= row < len(self.nodes):
+            return self.nodes[row].id
+        return None
+
     def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted):
         if event.row_key is not None and event.row_key.value is not None:
             self._show(event.row_key.value)
 
+    # --- commands ---
+    def action_focus_cmd(self):
+        self.query_one("#cmd", Input).focus()
 
-def run_tui(root):
-    InquiryTUI(root).run()
+    def action_cancel_op(self):
+        if self._op_worker is not None and not self._op_worker.is_finished:
+            self._op_worker.cancel()
+            self._set_status("연산 취소 요청됨…")
+        else:
+            self.query_one("#map", DataTable).focus()
+
+    def on_input_submitted(self, event: Input.Submitted):
+        text = event.value.strip()
+        event.input.value = ""
+        self.query_one("#map", DataTable).focus()
+        if text:
+            self._dispatch(text)
+
+    def _dispatch(self, text):
+        verb, _, rest = text.partition(" ")
+        verb, rest = verb.lower(), rest.strip()
+        if verb == "quit":
+            self.exit()
+        elif verb in MODEL_OPS:
+            self._start_op(verb)
+        elif verb == "start":
+            self._transition("start")
+        elif verb == "accept":
+            self._accept()
+        elif verb == "reject":
+            self._reject()
+        elif verb == "cancel":
+            self.action_cancel_op()
+        else:
+            self._set_status(f"알 수 없는 명령: {verb}. {HELP}")
+
+    def _transition(self, action):
+        hid = self._current_hid
+        if hid is None:
+            return
+        try:
+            Commands(self.root).decide(hid, action)
+        except Exception as e:  # noqa: BLE001 — surface to status line
+            self._set_status(f"{action} 실패: {e}")
+            return
+        self._reload_state()
+        self._rebuild_table()
+        self._set_status(f"{hid} → {action} 적용")
+
+    def _start_op(self, operation):
+        hid = self._current_hid
+        if hid is None:
+            return
+        if self._op_worker is not None and not self._op_worker.is_finished:
+            self._set_status("다른 연산이 실행 중입니다. cancel 후 다시 시도하세요.")
+            return
+        factory = self.op_factories.get(operation)
+        if factory is None:
+            self._set_status(f"{operation} 어댑터가 설정되지 않았습니다(읽기 전용).")
+            return
+        self._set_status(f"{operation} 실행 중… (cancel/Esc로 취소)")
+        self._op_worker = self._run_op(operation, hid, factory)
+
+    @work(thread=True, exclusive=True, group="op")
+    def _run_op(self, operation, hid, factory):
+        worker = get_current_worker()
+        try:
+            proposal = OperationsService(self.root).propose(
+                operation, [hid], adapter_factory=factory,
+                cancelled=lambda: worker.is_cancelled)
+        except BaseException as e:  # noqa: BLE001
+            msg = "취소됨" if worker.is_cancelled else f"{operation} 실패: {e}"
+            self.call_from_thread(self._op_failed, msg)
+            return
+        self.call_from_thread(self._op_done, operation, proposal)
+
+    def _op_failed(self, msg):
+        self.pending = None
+        self._set_status(msg)
+
+    def _op_done(self, operation, proposal):
+        self.pending = proposal
+        self._set_status(
+            f"{operation} 제안 생성 — accept 또는 reject (proposal {proposal['id']})")
+
+    def _accept(self):
+        if not self.pending:
+            self._set_status("승인할 제안이 없습니다.")
+            return
+        try:
+            OperationsService(self.root).accept(self.pending['id'])
+        except Exception as e:  # noqa: BLE001
+            self._set_status(f"accept 실패: {e}")
+            return
+        self.pending = None
+        self._reload_state()
+        self._rebuild_table()
+        self._set_status("제안 승인 — 저장됨")
+
+    def _reject(self):
+        if not self.pending:
+            self._set_status("거부할 제안이 없습니다.")
+            return
+        try:
+            OperationsService(self.root).reject(self.pending['id'], reason="tui-reject")
+        except Exception as e:  # noqa: BLE001
+            self._set_status(f"reject 실패: {e}")
+            return
+        self.pending = None
+        self._set_status("제안 거부됨")
+
+
+def run_tui(root, op_factories=None):
+    InquiryTUI(root, op_factories=op_factories).run()
