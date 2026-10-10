@@ -72,7 +72,8 @@ LANE_COLORS = ("bright_white", "bright_cyan", "bright_magenta", "bright_green",
 MODEL_OPS = ('deepen', 'challenge')
 LEGEND = "  ".join(f"{sym} {label}" for sym, label in STATUS.values())
 HELP = ("명령: start · deepen · challenge · fork · mark · synthesize · "
-        "accept · reject · cancel · find <ID> · legend · quit")
+        "accept · reject · cancel · action <제목> · check/uncheck <ID> · "
+        "find <ID> · legend · quit")
 
 
 def _order(state):
@@ -135,6 +136,11 @@ def _detail_text(h, state):
             ev = state.evidence.get(l.evidence_id)
             if ev:
                 lines.append(f"  · [{l.relation}] {ev.type}: {ev.content[:80]}")
+    acts = [a for a in sorted(state.actions.values(), key=lambda a: a.id)
+            if a.hypothesis_id == h.id]
+    if acts:
+        lines.append("[b]Actions[/b]")
+        lines += [f"  \\[{'x' if a.done else ' '}] {a.id} {a.title}" for a in acts]
     return "\n".join(lines)
 
 
@@ -415,6 +421,10 @@ class InquiryTUI(App):
             self._start_synth()
         elif verb == "start":
             self._transition("start")
+        elif verb == "action":
+            self._add_action(rest)
+        elif verb in ("check", "uncheck"):
+            self._check_action(rest, verb == "check")
         elif verb == "accept":
             self._accept(rest)
         elif verb == "reject":
@@ -457,6 +467,37 @@ class InquiryTUI(App):
         self._reload_state()
         self._rebuild_table()
         self._set_status(f"{hid} → {action} 적용")
+
+    def _add_action(self, title):
+        hid = self._current_hid
+        if hid is None or hid == 'ROOT':
+            self._set_status('가설을 선택한 뒤 action <제목> 으로 추가하세요.')
+            return
+        if not title:
+            self._set_status('action <제목> 형식으로 입력하세요.')
+            return
+        try:
+            aid = Commands(self.root).add_action(hid, title)
+        except Exception as e:  # noqa: BLE001 — surface to status line
+            self._set_status(f"action 실패: {e}")
+            return
+        self._reload_state()
+        self._rebuild_table()
+        self._set_status(f"{hid}에 {aid} 추가됨")
+
+    def _check_action(self, aid, done):
+        aid = aid.strip().upper()
+        if not aid:
+            self._set_status('check <A-ID> / uncheck <A-ID> 형식으로 입력하세요.')
+            return
+        try:
+            Commands(self.root).check_action(aid, done=done)
+        except Exception as e:  # noqa: BLE001 — surface to status line
+            self._set_status(f"{'check' if done else 'uncheck'} 실패: {e}")
+            return
+        self._reload_state()
+        self._rebuild_table()
+        self._set_status(f"{aid} {'완료' if done else '해제'}")
 
     def _start_op(self, operation):
         hid = self._current_hid
