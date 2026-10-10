@@ -33,17 +33,16 @@ def _pad(text, width):
         out += ch
     return out + " " * (width - cell_len(out))
 
-# 실루엣이 서로 다른 기호 — 색 없이(흑백)도 구분된다(Gate B 항목3 후속).
-# 색은 기본 출력에서 상태를 한눈에 구분(기본=컬러 결정, 흑백은 기호로 폴백).
+# STATUS 열 기호 — scale.py(m1b)와 동일 세트. GRAPH 열 노드 점은 '*'로 통일.
 STATUS = {
-    'suggested': ('○', 'Suggested'),
-    'exploring': ('▷', 'Exploring'),
-    'supported': ('✓', 'Supported'),
-    'contested': ('!', 'Contested'),
-    'suspended': ('=', 'Suspended'),
-    'refuted': ('✗', 'Refuted'),
+    'suggested': ('◌', 'Suggested'),
+    'exploring': ('◉', 'Exploring'),
+    'supported': ('●', 'Supported'),
+    'contested': ('◐', 'Contested'),
+    'suspended': ('∙', 'Suspended'),
+    'refuted': ('×', 'Refuted'),
     'synthesized': ('◆', 'Synthesized'),
-    'human-closed': ('■', 'Closed'),
+    'human-closed': ('⊘', 'Closed'),
 }
 STATUS_STYLE = {
     'suggested': 'grey62',
@@ -55,6 +54,9 @@ STATUS_STYLE = {
     'synthesized': 'bold magenta',
     'human-closed': 'grey50',
 }
+# GRAPH 열 레인(브랜치)별 색 — 분기되면 머지 전까지 레인마다 다른 색.
+LANE_COLORS = ("bright_white", "bright_cyan", "bright_magenta", "bright_green",
+               "bright_yellow", "bright_blue", "bright_red", "orange1")
 MODEL_OPS = ('deepen', 'challenge')
 LEGEND = "  ".join(f"{sym} {label}" for sym, label in STATUS.values())
 HELP = ("명령: start · deepen · challenge · fork · mark · synthesize · "
@@ -244,32 +246,36 @@ class InquiryTUI(App):
             cells, col = lanes[idx]
             kind, parents = conn[h.id]
             sym, label = STATUS.get(h.status, ('?', h.status))
-            style = STATUS_STYLE.get(h.status, 'white')
+            sstyle = STATUS_STYLE.get(h.status, 'white')
             marked = h.id in self.marked
+            # GRAPH 열: 분기선(│╲╱)·노드(*)·머지(◆)만, 레인별 색. 상태 기호 없음.
             if kind == 'fork':
-                t.add_row(self._graph_cell(cells, col, '╲', "grey50", marked),
+                t.add_row(self._graph_cell(cells, col, '╲', marked),
                           "", Text("Fork", style="grey50"), "")
             elif kind == 'merge':
-                t.add_row(self._graph_cell(cells, col, '╱', "grey50", marked),
+                t.add_row(self._graph_cell(cells, col, '╱', marked),
                           "", Text("Merge / " + " + ".join(parents), style="grey50"), "")
+            node_glyph = '◆' if kind == 'merge' else '*'
             selected = (idx == self.sel)
-            t.add_row(self._graph_cell(cells, col, sym, style, marked),
+            t.add_row(self._graph_cell(cells, col, node_glyph, marked),
                       Text(h.id), Text(("▸ " if selected else "  ") + h.title),
-                      Text(f"{sym} {label}", style=style),
+                      Text(f"{sym} {label}", style=sstyle),   # 상태 기호·색은 STATUS 열에만
                       style=("on grey30" if selected else None))
         return t
 
-    def _graph_cell(self, cells, col, glyph, style, marked=False):
+    def _graph_cell(self, cells, col, glyph, marked=False):
+        """레인별 색으로 분기선·노드를 그린다(브랜치마다 머지 전까지 다른 색)."""
         c = Text()
         if marked:
             c.append("•", style="bold yellow")
         for i, ch in enumerate(cells):
+            color = LANE_COLORS[i % len(LANE_COLORS)]
             if i == col:
-                c.append(glyph, style=style)
+                c.append(glyph, style=f"bold {color}")
             elif ch in ('@', ' '):
                 c.append(' ')
             else:
-                c.append('│', style="grey42")
+                c.append('│', style=color)
             c.append(' ')
         return c
 
