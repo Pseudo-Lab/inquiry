@@ -16,18 +16,21 @@ from textual.widgets import DataTable, Footer, Header, Input, Static
 from .commands import Commands
 from .operations import OperationsService
 
+# 실루엣이 서로 다른 기호 — 색 없이(흑백)도 구분된다(Gate B 항목3 후속).
 STATUS = {
-    'suggested': ('◌', 'Suggested'),
-    'exploring': ('◉', 'Exploring'),
-    'supported': ('●', 'Supported'),
-    'contested': ('◐', 'Contested'),
-    'suspended': ('∙', 'Suspended'),
-    'refuted': ('×', 'Refuted'),
+    'suggested': ('○', 'Suggested'),
+    'exploring': ('▷', 'Exploring'),
+    'supported': ('✓', 'Supported'),
+    'contested': ('!', 'Contested'),
+    'suspended': ('=', 'Suspended'),
+    'refuted': ('✗', 'Refuted'),
     'synthesized': ('◆', 'Synthesized'),
-    'human-closed': ('⊘', 'Closed'),
+    'human-closed': ('■', 'Closed'),
 }
 MODEL_OPS = ('deepen', 'challenge')
-HELP = "명령: start · deepen · challenge · accept · reject · cancel · quit"
+LEGEND = "  ".join(f"{sym} {label}" for sym, label in STATUS.values())
+HELP = ("명령: start · deepen · challenge · accept · reject · cancel · "
+        "find <ID> · legend · quit")
 
 
 def _order(state):
@@ -173,8 +176,28 @@ class InquiryTUI(App):
             self._reject()
         elif verb == "cancel":
             self.action_cancel_op()
+        elif verb == "find":
+            self._find(rest)
+        elif verb == "legend":
+            self._set_status(LEGEND)
         else:
             self._set_status(f"알 수 없는 명령: {verb}. {HELP}")
+
+    def _find(self, query):
+        q = query.strip().lower()
+        if not q:
+            self._set_status("find <ID> 형식으로 입력하세요.")
+            return
+        match = next((i for i, h in enumerate(self.nodes) if h.id.lower() == q), None)
+        if match is None:
+            match = next((i for i, h in enumerate(self.nodes)
+                          if h.id.lower().startswith(q)), None)
+        if match is None:
+            self._set_status(f"'{query}' 노드를 찾을 수 없습니다.")
+            return
+        self.query_one("#map", DataTable).move_cursor(row=match)
+        self._show(self.nodes[match].id)
+        self._set_status(f"{self.nodes[match].id} (행 {match + 1}/{len(self.nodes)})")
 
     def _transition(self, action):
         hid = self._current_hid

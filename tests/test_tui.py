@@ -96,6 +96,30 @@ class TUIOperationTests(unittest.IsolatedAsyncioTestCase):
             self.assertIsNone(app.pending)
             self.assertIn('어댑터가 설정되지 않', str(app.query_one('#status', Static).render()))
 
+    async def test_find_jumps_cursor_to_node_id(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        c = Commands(tmp.name)
+        c.initialize('seed', {'central_question': 'q'})
+        ids = [c.add_hypothesis(f'가설{i}', f'가설{i} 성립') for i in range(5)]
+        app = InquiryTUI(tmp.name)
+        async with app.run_test(size=(100, 24)) as pilot:
+            app._dispatch(f'find {ids[3]}')
+            await pilot.pause()
+            self.assertEqual(app.query_one('#map', DataTable).cursor_row, 3)
+            self.assertIn(ids[3], str(app.query_one('#status', Static).render()))
+            app._dispatch('find H-999')
+            await pilot.pause()
+            self.assertIn('찾을 수 없', str(app.query_one('#status', Static).render()))
+
+    async def test_status_symbols_are_distinct_shapes(self):
+        from inquiry.tui import STATUS
+        symbols = [sym for sym, _ in STATUS.values()]
+        self.assertEqual(len(symbols), len(set(symbols)))  # 전부 고유
+        # 원 계열 중복 제거 확인: 지지/탐색/제안이 서로 다른 글리프
+        self.assertNotEqual(STATUS['supported'][0], STATUS['exploring'][0])
+        self.assertNotEqual(STATUS['exploring'][0], STATUS['suggested'][0])
+
     async def test_running_op_can_be_cancelled(self):
         root = self._make()
         started, release = threading.Event(), threading.Event()
