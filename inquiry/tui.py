@@ -6,6 +6,7 @@ Textual 기반(ADR-D7 Gate B 항목4 선정).
   모델 연산은 취소 가능한 thread 워커로 돌리고(협조적 cancelled), 결과는
   사람이 accept/reject로 확정한다(ADR-D5 human-approval).
 """
+from rich.text import Text
 from textual import work
 from textual.worker import get_current_worker
 from textual.app import App, ComposeResult
@@ -14,10 +15,11 @@ from textual.containers import Vertical
 from textual.widgets import DataTable, Footer, Header, Input, Static
 
 from .commands import Commands
-from .graphlog import lane_rows, render_row
+from .graphlog import lane_rows
 from .operations import OperationsService
 
 # 실루엣이 서로 다른 기호 — 색 없이(흑백)도 구분된다(Gate B 항목3 후속).
+# 색은 기본 출력에서 상태를 한눈에 구분(기본=컬러 결정, 흑백은 기호로 폴백).
 STATUS = {
     'suggested': ('○', 'Suggested'),
     'exploring': ('▷', 'Exploring'),
@@ -27,6 +29,16 @@ STATUS = {
     'refuted': ('✗', 'Refuted'),
     'synthesized': ('◆', 'Synthesized'),
     'human-closed': ('■', 'Closed'),
+}
+STATUS_STYLE = {
+    'suggested': 'grey62',
+    'exploring': 'bright_cyan',
+    'supported': 'bold green',
+    'contested': 'yellow',
+    'suspended': 'grey62',
+    'refuted': 'bold red',
+    'synthesized': 'bold magenta',
+    'human-closed': 'grey50',
 }
 MODEL_OPS = ('deepen', 'challenge')
 LEGEND = "  ".join(f"{sym} {label}" for sym, label in STATUS.values())
@@ -67,10 +79,27 @@ def _detail_text(h, state):
 
 class InquiryTUI(App):
     CSS = """
-    #map { height: 1fr; }
-    #details { height: auto; max-height: 40%; border-top: solid $accent; padding: 0 1; }
+    Screen { background: $surface; }
+    #map {
+        height: 1fr;
+        border: round $primary;
+        border-title-color: $accent;
+        border-title-style: bold;
+        padding: 0 1;
+        background: $panel;
+    }
+    #map > .datatable--header { text-style: bold; color: $accent; }
+    #map > .datatable--cursor { background: $accent 30%; }
+    #details {
+        height: auto; max-height: 42%;
+        border: round $primary;
+        border-title-color: $accent;
+        border-title-style: bold;
+        padding: 0 1;
+        background: $panel;
+    }
     #status { height: 1; color: $text-muted; padding: 0 1; }
-    #cmd { dock: bottom; }
+    #cmd { dock: bottom; border: tall $accent; }
     """
     BINDINGS = [
         Binding("q", "quit", "Quit"),
@@ -107,6 +136,9 @@ class InquiryTUI(App):
         self.title = "Inquiry"
         self.sub_title = frame.get("central_question") or (
             self.state.inquiry.seed if self.state.inquiry else "(빈 탐구)")
+        self.query_one("#map").border_title = "Branch log"
+        self.query_one("#map").border_subtitle = f"{len(self.nodes)} nodes"
+        self.query_one("#details").border_title = "Details"
         self._rebuild_table(select=0)
         self.query_one("#map", DataTable).focus()
 
@@ -118,10 +150,11 @@ class InquiryTUI(App):
         lanes = lane_rows(self.nodes)
         for idx, h in enumerate(self.nodes):
             sym, label = STATUS.get(h.status, ('?', h.status))
+            style = STATUS_STYLE.get(h.status, 'white')
             cells, col = lanes[idx]
-            graph = render_row(cells, col, sym)
-            prefix = "•" if h.id in self.marked else ""
-            table.add_row(f"{prefix}{graph}", h.id, h.title, f"{sym} {label}", key=h.id)
+            graph = self._graph_text(cells, col, sym, style, h.id in self.marked)
+            status_cell = Text(f"{sym} {label}", style=style)
+            table.add_row(graph, Text(h.id, style="grey70"), h.title, status_cell, key=h.id)
         if self.nodes:
             row = min(keep or 0, len(self.nodes) - 1)
             table.move_cursor(row=row)
@@ -129,6 +162,19 @@ class InquiryTUI(App):
         else:
             self.query_one("#details", Static).update(
                 "이 탐구에는 아직 가설이 없습니다. framing으로 프레임을 승인하세요.")
+
+    def _graph_text(self, cells, col, symbol, style, marked):
+        t = Text()
+        t.append("•" if marked else " ", style="bold yellow" if marked else "")
+        for i, ch in enumerate(cells):
+            if i == col:
+                t.append(symbol, style=style)
+            elif ch == '@':
+                t.append(' ')
+            else:
+                t.append(ch, style="grey42")   # 레인 바는 흐리게
+            t.append(' ')
+        return t
 
     def _show(self, hid):
         h = self.state.hypotheses.get(hid)
