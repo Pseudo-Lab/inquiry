@@ -62,7 +62,39 @@ HELP = ("명령: start · deepen · challenge · fork · mark · synthesize · "
 
 
 def _order(state):
-    return list(state.hypotheses.values())
+    """표시 순서: 루트에서 DFS로 부모 바로 아래 자식을 모은다(계보 그룹화).
+
+    생성 순서는 부모·자식이 흩어져 레인이 지저분하고 대각선이 안 그려진다.
+    DFS 토폴로지(부모가 모두 그려진 뒤에만 자식을 그림)로 바꾸면 fork가 부모
+    바로 밑에 붙어 ╲/╱ 커넥터가 깔끔하게 나온다.
+    """
+    nodes = state.hypotheses
+    ids = list(nodes)  # 생성 순서(루트·형제 순서 보존)
+    children = {i: [] for i in ids}
+    remaining = {}
+    for i in ids:
+        parents = [p for p in nodes[i].parent_ids if p in nodes]
+        remaining[i] = len(parents)
+        for p in parents:
+            children[p].append(i)
+    order, emitted = [], set()
+
+    def emit(i):
+        order.append(i)
+        emitted.add(i)
+        for c in children[i]:
+            remaining[c] -= 1
+        for c in children[i]:
+            if remaining[c] == 0 and c not in emitted:
+                emit(c)
+
+    for i in ids:
+        if remaining[i] == 0 and i not in emitted:
+            emit(i)
+    for i in ids:  # 안전망(순환 등 예외)
+        if i not in emitted:
+            order.append(i)
+    return [nodes[i] for i in order]
 
 
 def _detail_text(h, state):
