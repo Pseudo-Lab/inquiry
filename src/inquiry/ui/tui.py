@@ -317,6 +317,10 @@ class InquiryTUI(App):
                           Text("Merge / " + " + ".join(row['parents']), style="grey50"), "")
                 data_row += 1
                 continue
+            if row['kind'] == 'compact':
+                t.add_row(self._edge_cell(row['cells']), "", "", "")
+                data_row += 1
+                continue
             h = by_id[row['id']]
             marked = h.id in self.marked
             selected = (idx[h.id] == self.sel)
