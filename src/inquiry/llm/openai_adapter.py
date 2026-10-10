@@ -11,7 +11,7 @@ import re
 import time
 from contextlib import contextmanager
 
-from .adapter import RunSignal, _object, unknown_usage, validate_request
+from inquiry.llm.adapter import RunSignal, _object, unknown_usage, validate_request
 
 
 _BASE_URL = 'https://api.openai.com/v1'
@@ -205,7 +205,7 @@ class OpenAIAdapter:
             raise ValueError('invalid context')
         if request.operation in ('hypothesis.fork', 'hypothesis.deepen', 'hypothesis.challenge',
                                  'hypothesis.synthesize'):
-            from .branch_schema import parent_context
+            from inquiry.features.branch.schema import parent_context
             frame = request.context['inquiry_frame']
             if not isinstance(frame, dict):
                 raise ValueError('invalid branch context')

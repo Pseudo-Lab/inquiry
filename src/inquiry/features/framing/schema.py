@@ -1,6 +1,6 @@
 """Pure framing protocol checks; duplicate checks do not assess semantic novelty."""
 
-from .adapter import _object, _string
+from inquiry.llm.adapter import _object, _string
 
 
 def _strict_object(properties):

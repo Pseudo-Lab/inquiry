@@ -1,7 +1,7 @@
 """Branch lifecycle batch validation and detached projection updates."""
 from copy import deepcopy
 
-from .branch_schema import BRANCH_PARENT_STATES, parent_snapshot, validate_branch
+from inquiry.features.branch.schema import BRANCH_PARENT_STATES, parent_snapshot, validate_branch
 
 
 KINDS = frozenset({'BranchProposed', 'BranchRejected', 'BranchAccepted'})

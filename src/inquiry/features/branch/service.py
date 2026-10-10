@@ -4,12 +4,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
-from .adapter import RunRequest, _number
-from .branch_schema import BRANCH_PARENT_STATES, BRANCH_SCHEMA, parent_snapshot, validate_branch
-from .commands import _hypothesis, _next_id
-from .replay import replay
-from .runs import Runner
-from .store import Store
+from inquiry.llm.adapter import RunRequest, _number
+from inquiry.features.branch.schema import BRANCH_PARENT_STATES, BRANCH_SCHEMA, parent_snapshot, validate_branch
+from inquiry.commands import _hypothesis, _next_id
+from inquiry.domain.replay import replay
+from inquiry.llm.runs import Runner
+from inquiry.store.store import Store
 
 
 FORK_SYSTEM = """선택한 가설을 바탕으로 서로 다른 관점의 자식 가설 후보를 2~4개 제안한다.

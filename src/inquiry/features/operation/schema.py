@@ -1,6 +1,6 @@
 """Pure schemas and target validation for hypothesis operations."""
 
-from .adapter import _object, _string
+from inquiry.llm.adapter import _object, _string
 
 
 ACTIVE_STATES = frozenset({'suggested', 'exploring', 'supported', 'contested'})

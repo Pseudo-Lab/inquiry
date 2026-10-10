@@ -81,8 +81,8 @@ printf '\n.env\n' >> /path/to/inquiry/.gitignore
 
 ```python
 from tempfile import TemporaryDirectory
-from inquiry.store import Store
-from inquiry.replay import replay
+from inquiry.store.store import Store
+from inquiry.domain.replay import replay
 
 event = {
     "schema_version": 1,
@@ -144,7 +144,7 @@ with TemporaryDirectory() as root:
 
 ## Framing draft 저장과 승인
 
-`inquiry.framing.FramingService`는 질문 → 제출 답변 → 제안 → 승인 흐름을 저장한다. CLI는 실제 생성이 필요한 `framing next`에서만 프로젝트 설정과 OpenAI 어댑터를 지연 로드한다. 저장된 질문·pending 제안·승인된 세션을 조회하거나 `show`/`resume`/`accept`를 실행할 때는 키나 SDK를 읽지 않는다.
+`inquiry.features.framing.service.FramingService`는 질문 → 제출 답변 → 제안 → 승인 흐름을 저장한다. CLI는 실제 생성이 필요한 `framing next`에서만 프로젝트 설정과 OpenAI 어댑터를 지연 로드한다. 저장된 질문·pending 제안·승인된 세션을 조회하거나 `show`/`resume`/`accept`를 실행할 때는 키나 SDK를 읽지 않는다.
 
 - `start(seed)`: 첫 호출 전에 seed와 세션 ID를 저장한다.
 - `advance(session_id, adapter)`: 처음에는 3문항, 이후에는 누적 5문항 안에서 추가 질문 또는 프레임을 생성한다. 미응답 질문이나 pending 제안이 있으면 다시 호출하지 않고 저장된 내용을 반환한다.
@@ -211,8 +211,8 @@ python3 -m inquiry --dir demo-framing framing accept F-... P-...
 
 ```python
 from tempfile import TemporaryDirectory
-from inquiry.adapter import RunRequest, RunSignal
-from inquiry.runs import Runner
+from inquiry.llm.adapter import RunRequest, RunSignal
+from inquiry.llm.runs import Runner
 
 class DemoAdapter:
     def run(self, request):

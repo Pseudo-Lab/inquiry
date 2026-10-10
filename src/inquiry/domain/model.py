@@ -1,7 +1,7 @@
 """Minimal projections needed to verify durable storage and replay."""
 from dataclasses import dataclass, field
 from typing import Optional
-from .adapter import unknown_usage
+from inquiry.llm.adapter import unknown_usage
 
 
 @dataclass(frozen=True)

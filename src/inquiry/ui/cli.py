@@ -7,9 +7,9 @@ from pathlib import Path
 import re
 import sys
 
-from .commands import Commands
-from .events import EVIDENCE_TYPES
-from .store import StoreError
+from inquiry.commands import Commands
+from inquiry.domain.events import EVIDENCE_TYPES
+from inquiry.store.store import StoreError
 
 
 _OPTIONAL_DEPENDENCIES = (
@@ -55,8 +55,8 @@ def _openai_factory(root, model, max_output_tokens, timeout, *, purpose='framing
     def create():
         nonlocal last_notice
         try:
-            from .config import load_openai_settings
-            from .openai_adapter import OpenAIAdapter
+            from inquiry.config import load_openai_settings
+            from inquiry.llm.openai_adapter import OpenAIAdapter
         except ImportError:
             raise ValueError(_OPTIONAL_DEPENDENCIES) from None
         settings = load_openai_settings(root, model=model)
@@ -212,8 +212,8 @@ def main(argv=None, *, adapter=None):
     args = parser.parse_args(argv)
     try:
         if args.command == 'branch':
-            from .branch import BranchService
-            from .runs import Runner
+            from inquiry.features.branch.service import BranchService
+            from inquiry.llm.runs import Runner
             service = BranchService(args.dir)
             if args.operation == 'propose':
                 factory = ((lambda: (adapter, args.model or 'fake')) if adapter is not None else
@@ -232,8 +232,8 @@ def main(argv=None, *, adapter=None):
             print(json.dumps(result, ensure_ascii=False, indent=2))
             return
         if args.command == 'explore':
-            from .operations import OperationsService
-            from .runs import Runner
+            from inquiry.features.operation.service import OperationsService
+            from inquiry.llm.runs import Runner
             service = OperationsService(args.dir)
             if args.operation == 'propose':
                 factory = ((lambda: (adapter, args.model or 'fake')) if adapter is not None else
@@ -255,7 +255,7 @@ def main(argv=None, *, adapter=None):
             print(json.dumps(result, ensure_ascii=False, indent=2))
             return
         if args.command == 'chat':
-            from .interactive import run_conversation
+            from inquiry.ui.interactive import run_conversation
             factory = ((lambda: (adapter, args.model or 'fake')) if adapter is not None else
                        _openai_factory(args.dir, args.model, args.max_output_tokens, args.timeout))
             branch_factory = ((lambda: (adapter, args.model or 'fake')) if adapter is not None else
@@ -278,7 +278,7 @@ def main(argv=None, *, adapter=None):
                              timeout=args.timeout)
             return
         if args.command == 'tui':
-            from .tui import run_tui
+            from inquiry.ui.tui import run_tui
             ops = ('deepen', 'challenge', 'fork', 'synthesize')
             if adapter is not None:
                 op_factories = {op: (lambda a=adapter: (a, args.model or 'fake')) for op in ops}
@@ -289,12 +289,12 @@ def main(argv=None, *, adapter=None):
             run_tui(args.dir, op_factories=op_factories)
             return
         if args.command == 'config':
-            from .config import check_config
+            from inquiry.config import check_config
             print(json.dumps(check_config(args.dir, model=args.model), ensure_ascii=False, indent=2))
             return
         commands = Commands(args.dir)
         if args.command == 'framing':
-            from .framing import FramingService
+            from inquiry.features.framing.service import FramingService
             service = FramingService(args.dir)
             if args.operation == 'start':
                 result = {'session_id': service.start(args.seed)}

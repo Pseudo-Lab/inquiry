@@ -2,8 +2,8 @@
 
 from copy import deepcopy
 
-from .branch_schema import parent_snapshot
-from .operation_schema import eligible_targets, validate_operation
+from inquiry.features.branch.schema import parent_snapshot
+from inquiry.features.operation.schema import eligible_targets, validate_operation
 
 
 KINDS = frozenset({'OperationProposed', 'OperationRejected', 'OperationAccepted',

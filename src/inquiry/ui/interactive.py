@@ -2,7 +2,7 @@
 import importlib
 import sys
 
-from .framing import FramingService
+from inquiry.features.framing.service import FramingService
 
 
 class _Exit(Exception):
@@ -117,8 +117,8 @@ def _branch_selection(console, candidates):
 
 
 def _branch_once(console, root, factory, max_output_tokens, timeout):
-    from .branch import BranchService
-    from .branch_schema import BRANCH_PARENT_STATES
+    from inquiry.features.branch.service import BranchService
+    from inquiry.features.branch.schema import BRANCH_PARENT_STATES
     service = BranchService(root)
     state = service.state()
     pending = {p['parent_id']: p for p in state.branch_proposals.values() if p['status'] == 'pending'}
@@ -181,8 +181,8 @@ def _branch_once(console, root, factory, max_output_tokens, timeout):
 
 def _branch_workspace(console, root, factory, max_output_tokens, timeout,
                       operation_factories):
-    from .branch import BranchService
-    from .runs import Runner
+    from inquiry.features.branch.service import BranchService
+    from inquiry.llm.runs import Runner
     service = BranchService(root)
     while True:
         state = service.state()
@@ -209,7 +209,7 @@ def _branch_workspace(console, root, factory, max_output_tokens, timeout,
             _branch_once(console, root, factory, max_output_tokens, timeout)
         else:
             # Lazy import avoids interactive <-> operation_ui import cycles at load time.
-            from . import operation_ui
+            from inquiry.features.operation import ui as operation_ui
             operation_ui.run_check(console, root, operation_factories,
                                    max_output_tokens, timeout)
 

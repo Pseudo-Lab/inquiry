@@ -5,13 +5,13 @@ import math
 from pathlib import Path
 from uuid import uuid4
 
-from .adapter import RunRequest
-from .commands import _hypothesis, _next_id
-from .framing_schema import CONTROL_SCHEMA, FRAME_SCHEMA, validate_questions, validate_frame
-from .framing_prompts import FACILITATOR_SYSTEM, FRAMER_SYSTEM
-from .replay import replay
-from .runs import Runner
-from .store import Store
+from inquiry.llm.adapter import RunRequest
+from inquiry.commands import _hypothesis, _next_id
+from inquiry.features.framing.schema import CONTROL_SCHEMA, FRAME_SCHEMA, validate_questions, validate_frame
+from inquiry.features.framing.prompts import FACILITATOR_SYSTEM, FRAMER_SYSTEM
+from inquiry.domain.replay import replay
+from inquiry.llm.runs import Runner
+from inquiry.store.store import Store
 
 
 def _session(state, identity):

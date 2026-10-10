@@ -5,9 +5,9 @@ from pathlib import Path
 import time
 from uuid import uuid4
 
-from .adapter import validate_request, validate_signal, validate_usage, unknown_usage, not_started_usage
-from .replay import replay
-from .store import Store
+from inquiry.llm.adapter import validate_request, validate_signal, validate_usage, unknown_usage, not_started_usage
+from inquiry.domain.replay import replay
+from inquiry.store.store import Store
 
 
 class Runner:

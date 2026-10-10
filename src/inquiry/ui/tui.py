@@ -29,9 +29,9 @@ from textual.binding import Binding
 from textual.containers import Vertical, VerticalScroll
 from textual.widgets import Footer, Header, Input, Static
 
-from .commands import Commands
-from .graphlog import graph_rows
-from .operations import OperationsService
+from inquiry.commands import Commands
+from inquiry.ui.graphlog import graph_rows
+from inquiry.features.operation.service import OperationsService
 
 SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"   # 모델 연산 실행 중 애니메이션 프레임
 
@@ -517,7 +517,7 @@ class InquiryTUI(App):
 
     @work(thread=True, exclusive=True, group="op")
     def _run_fork(self, hid, factory):
-        from .branch import BranchService
+        from inquiry.features.branch.service import BranchService
         worker = get_current_worker()
         try:
             proposal = BranchService(self.root).propose(
@@ -602,7 +602,7 @@ class InquiryTUI(App):
                 if not selected:
                     self._set_status("유효한 후보 번호가 없습니다.")
                     return
-                from .branch import BranchService
+                from inquiry.features.branch.service import BranchService
                 BranchService(self.root).accept(self.pending['id'], selected)
             else:
                 OperationsService(self.root).accept(self.pending['id'])
@@ -622,7 +622,7 @@ class InquiryTUI(App):
             return
         try:
             if self.pending_kind == 'branch':
-                from .branch import BranchService
+                from inquiry.features.branch.service import BranchService
                 BranchService(self.root).reject(self.pending['id'], reason="tui-reject")
             else:
                 OperationsService(self.root).reject(self.pending['id'], reason="tui-reject")

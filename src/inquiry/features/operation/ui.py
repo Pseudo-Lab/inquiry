@@ -1,8 +1,8 @@
 """Line-oriented UI for explicit, human-approved hypothesis operations."""
 
-from .interactive import _Exit, _run_status
-from .operation_schema import ACTIVE_STATES
-from .operations import OperationsService
+from inquiry.ui.interactive import _Exit, _run_status
+from inquiry.features.operation.schema import ACTIVE_STATES
+from inquiry.features.operation.service import OperationsService
 
 
 def _preview_deepen(console, node, proposal):
