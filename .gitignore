@@ -27,3 +27,6 @@ docs/handoff/
 # 진행/실험 과정 문서 — git에는 확정 기능·결정(ADR)·검증된 reference만 둔다.
 # reports는 로컬 보존(작업 기록)하되 추적하지 않는다.
 docs/reports/
+
+# 테스트 코드 — 사용자 결정으로 git 비추적(로컬 보존). 주의: CI/협업자는 미실행.
+tests/
