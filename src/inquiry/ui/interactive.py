@@ -1,5 +1,7 @@
 """Line-oriented Framing UI. No provider imports, direct writes, or TUI state."""
 import importlib
+import os
+import re
 import sys
 
 from inquiry.features.framing.service import FramingService
@@ -25,13 +27,45 @@ def _safe(value):
                    else f'\\x{ord(c):02x}' for c in str(value))
 
 
+# 색·굵기(SGR)만 통과시키는 패턴 — 커서 이동·OSC 등 다른 제어열은 여전히 차단.
+_SGR = re.compile(r'\x1b\[[0-9;]*m')
+
+
 class _Console:
     def __init__(self, read, write):
         self.read = read or _terminal_input
         self.write = write or print
+        # 스타일은 실제 터미널 출력일 때만 — 주입된 write(테스트·파이프)는 평문.
+        self.styled = write is None and sys.stdout.isatty() and not os.environ.get('NO_COLOR')
+
+    def _sgr(self, text, code):
+        return f'\x1b[{code}m{text}\x1b[0m' if self.styled else text
+
+    def bold(self, text):
+        return self._sgr(text, '1')
+
+    def accent(self, text):
+        return self._sgr(text, '1;36')   # bold cyan — 제목·선택지 포인트
+
+    def dim(self, text):
+        return self._sgr(text, '2')
 
     def line(self, text=''):
+        text = str(text)
+        if self.styled and '\x1b[' in text:
+            # 스타일 조각(SGR)은 보존하고 그 사이 내용만 소독한다.
+            parts = _SGR.split(text)
+            codes = _SGR.findall(text)
+            text = _safe(parts[0]) + ''.join(code + _safe(part)
+                                             for code, part in zip(codes, parts[1:]))
+            self.write(text)
+            return
         self.write(_safe(text))
+
+    def head(self, title):
+        """섹션 머리 — 긴 출력 사이 시각적 경계(가독성 피드백 2026-10-10)."""
+        self.line()
+        self.line(self.accent(f'── {title} ' + '─' * max(4, 56 - len(title) * 2)))
 
     def text(self, prompt):
         while True:
@@ -43,8 +77,9 @@ class _Console:
             self.line('내용을 입력해 주세요. 모르면 "모르겠어요", 종료는 /exit입니다.')
 
     def choose(self, *labels):
+        self.line()
         for index, label in enumerate(labels, 1):
-            self.line(f'{index}. {label}')
+            self.line(self.accent(f'{index}.') + f' {label}')
         choices = {str(index): index for index in range(1, len(labels) + 1)}
         while True:
             value = self.text('선택 > ').strip()
@@ -53,39 +88,49 @@ class _Console:
             self.line(f'1~{len(labels)} 중 번호를 입력해 주세요.')
 
 
+def _candidates(console, candidates):
+    """가설 후보 블록 — 번호·제목을 강조하고 후보 사이를 비워 덩어리로 구분."""
+    for index, candidate in enumerate(candidates, 1):
+        console.line(console.accent(f"  {index}. {candidate['title']}"))
+        console.line(f"     주장      {candidate['claim']}")
+        console.line('     ' + console.bold('다른 점   ') + candidate['difference'])
+        console.line()
+
+
 def _frame(console, frame):
-    console.line('\nFrame proposal')
-    for key, label in (('central_question', 'Central question'), ('purpose', 'Purpose'),
-                       ('use_context', 'Use context'), ('current_belief', 'Current belief')):
-        console.line(f'{label}: {frame[key]}')
-    for label, items in (('Criteria', frame['criteria']), ('Scope / Include', frame['scope']['include']),
-                         ('Scope / Exclude', frame['scope']['exclude']),
-                         ('Open questions', frame['open_questions'])):
-        console.line(label + ':')
+    console.head('Frame proposal — 프레임 제안')
+    console.line(console.bold('중심 질문  ') + frame['central_question'])
+    for key, label in (('purpose', '목적      '), ('use_context', '사용 맥락 '),
+                       ('current_belief', '현재 믿음 ')):
+        console.line(console.bold(label) + frame[key])
+    for label, items in (('판단 기준', frame['criteria']), ('범위 — 포함', frame['scope']['include']),
+                         ('범위 — 제외', frame['scope']['exclude']),
+                         ('열린 질문', frame['open_questions'])):
+        console.line(console.bold(label + ':'))
         for item in items:
-            console.line('  - ' + item)
+            console.line('  · ' + item)
         if not items:
-            console.line('  (none)')
-    console.line('Hypotheses / Suggested:')
-    for index, candidate in enumerate(frame['hypotheses'], 1):
-        console.line(f"  {index}. {candidate['title']}")
-        console.line(f"     Claim: {candidate['claim']}")
-        console.line(f"     Difference: {candidate['difference']}")
+            console.line(console.dim('  (없음)'))
+    console.head('초기 가설 후보')
+    console.line(console.dim('  수락(Accept)하면 아래 후보가 모두 생성됩니다. 일부만 원하면 거부 사유에 적어주세요.'))
+    console.line()
+    _candidates(console, frame['hypotheses'])
 
 
 def _summary(console, state):
-    console.line('\nAccepted inquiry — 저장된 탐구')
-    console.line('Seed: ' + state.inquiry.seed)
-    console.line('Central question: ' + str(state.inquiry.frame.get(
+    console.head('저장된 탐구')
+    console.line(console.bold('중심 질문  ') + str(state.inquiry.frame.get(
         'central_question', state.inquiry.frame.get('question', '미정'))))
+    console.line(console.dim('Seed: ' + state.inquiry.seed))
+    console.line()
     for identity in state.inquiry.hypothesis_ids:
         node = state.hypotheses[identity]
-        console.line(f'{node.id} [{node.status}] {node.title}')
-        if node.parent_ids:
-            console.line('  Parents: ' + ', '.join(node.parent_ids))
-        console.line('  ' + node.claim)
-    console.line('Git-log TUI는 아직 연결하지 않았습니다. Gate B 검증 후 이 요약을 지도로 전환합니다.')
-    console.line('같은 명령으로 저장된 탐구를 다시 볼 수 있습니다.')
+        parents = (' ← ' + ', '.join(node.parent_ids)) if node.parent_ids else ''
+        console.line(console.accent(f'{node.id}') + f' [{node.status}] '
+                     + console.bold(node.title) + console.dim(parents))
+        console.line('    ' + node.claim)
+    console.line()
+    console.line(console.dim('그래프로 보려면: inquiry --dir <디렉토리> tui'))
 
 
 def _run_status(console, run, *, recovered=False):
@@ -153,11 +198,10 @@ def _branch_once(console, root, factory, max_output_tokens, timeout):
     if proposal['status'] != 'pending':
         console.line('이 제안은 이미 처리됐습니다. 저장된 상태를 다시 표시합니다.')
         return
-    console.line(f'\nBranch proposal / Parent: {parent.id} — {parent.title}')
-    for index, candidate in enumerate(proposal['candidates'], 1):
-        console.line(f"{index}. {candidate['title']}")
-        console.line('  Claim: ' + candidate['claim'])
-        console.line('  Difference: ' + candidate['difference'])
+    console.head(f'Branch proposal — {parent.id} {parent.title} 아래 자식 후보')
+    console.line(console.dim('  번호로 일부만 골라 수락할 수 있습니다 (Accept Selected → 예: 1,3 또는 all).'))
+    console.line()
+    _candidates(console, proposal['candidates'])
     try:
         if proposal['stale']:
             console.line('Stale — 부모가 바뀌어 승인할 수 없습니다. 거부 후 허용 부모에서 다시 생성하세요.')
@@ -270,10 +314,10 @@ def run_conversation(root, *, adapter_factory, read=None, write=None,
             if view['outstanding_questions']:
                 question = view['outstanding_questions'][0]
                 index = next(i for i, q in enumerate(view['questions'], 1) if q['qid'] == question['qid'])
-                console.line(f"\nQuestion {index} / {len(view['questions'])} — 현재까지 생성된 질문 (최대 5개)")
+                console.head(f"Question {index} / {len(view['questions'])}")
                 # question_rationale(배치 단위 생성 이유)은 질문마다 반복 노출돼
                 # 혼란을 줬음(사용자 피드백 2026-10-10) — 저장은 유지, 표시만 생략.
-                console.line(question['text'])
+                console.line(console.bold(question['text']))
                 service.answer(sid, question['qid'], console.text('답변 > '))
                 console.line('Saved')
                 continue
