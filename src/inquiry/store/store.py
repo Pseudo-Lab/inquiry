@@ -8,8 +8,8 @@ import os
 import threading
 from pathlib import Path
 
-from inquiry.events import validate_event
-from inquiry.replay import ReplayError, replay
+from inquiry.domain.events import validate_event
+from inquiry.domain.replay import ReplayError, replay
 
 
 class StoreError(Exception):

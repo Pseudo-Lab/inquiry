@@ -3,7 +3,7 @@ from copy import deepcopy
 from datetime import datetime, timedelta
 import math
 import re
-from .adapter import RunRequest, RunSignal, validate_request, validate_signal, validate_usage
+from inquiry.llm.adapter import RunRequest, RunSignal, validate_request, validate_signal, validate_usage
 
 
 class EventValidationError(ValueError):

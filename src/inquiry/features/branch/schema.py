@@ -2,7 +2,7 @@
 from dataclasses import asdict
 import json
 
-from .adapter import _object, _string
+from inquiry.llm.adapter import _object, _string
 
 
 BRANCH_PARENT_STATES = frozenset({'suggested', 'exploring', 'supported', 'contested'})

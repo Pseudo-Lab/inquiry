@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "inquiry"
+version = "0.1.0"
+description = "Inquiry's local, event-backed core for framing, branching, and operating on hypotheses."
+requires-python = ">=3.10"
+dependencies = [
+    "openai>=2.48.0,<3",
+    "python-dotenv>=1.0,<2",
+    "textual>=8.2,<9",
+]
+
+[project.scripts]
+inquiry = "inquiry.ui.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

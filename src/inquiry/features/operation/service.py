@@ -5,14 +5,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
-from .adapter import RunRequest, _number, _string
-from .branch_schema import parent_snapshot
-from .commands import _hypothesis, _next_id, _transition
-from .operation_prompts import OPERATION_PROMPTS
-from .operation_schema import OPERATION_SCHEMAS, eligible_targets, validate_operation
-from .replay import replay
-from .runs import Runner
-from .store import Store
+from inquiry.llm.adapter import RunRequest, _number, _string
+from inquiry.features.branch.schema import parent_snapshot
+from inquiry.commands import _hypothesis, _next_id, _transition
+from inquiry.features.operation.prompts import OPERATION_PROMPTS
+from inquiry.features.operation.schema import OPERATION_SCHEMAS, eligible_targets, validate_operation
+from inquiry.domain.replay import replay
+from inquiry.llm.runs import Runner
+from inquiry.store.store import Store
 
 
 class OperationsService:

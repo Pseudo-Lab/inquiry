@@ -1,7 +1,7 @@
 """Framing lifecycle validation and detached projection updates."""
 from dataclasses import replace
 
-from .framing_schema import validate_frame, validate_questions
+from inquiry.features.framing.schema import validate_frame, validate_questions
 
 
 KINDS = frozenset({'FramingControlRecorded', 'QuestionsIssued', 'AnswerRecorded',

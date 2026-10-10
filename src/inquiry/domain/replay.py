@@ -1,14 +1,14 @@
 """Deterministic, nonmutating replay of a complete event history."""
 from dataclasses import asdict, replace
 
-from .events import EventValidationError, validate_event
-from .graph import validate_graph
-from .model import FramingSession, Inquiry, State, Hypothesis, Evidence, EvidenceLink, Run
-from .transitions import validate_transition
-from .framing_state import KINDS as FRAMING_KINDS, apply_change as apply_framing, validate_batch as validate_framing_batch
-from .branch_schema import parent_snapshot
-from .branch_state import KINDS as BRANCH_KINDS, apply_change as apply_branch, validate_batch as validate_branch_batch
-from .operation_state import KINDS as OPERATION_KINDS, apply_change as apply_operation, validate_batch as validate_operation_batch
+from inquiry.domain.events import EventValidationError, validate_event
+from inquiry.domain.graph import validate_graph
+from inquiry.domain.model import FramingSession, Inquiry, State, Hypothesis, Evidence, EvidenceLink, Run
+from inquiry.domain.transitions import validate_transition
+from inquiry.features.framing.state import KINDS as FRAMING_KINDS, apply_change as apply_framing, validate_batch as validate_framing_batch
+from inquiry.features.branch.schema import parent_snapshot
+from inquiry.features.branch.state import KINDS as BRANCH_KINDS, apply_change as apply_branch, validate_batch as validate_branch_batch
+from inquiry.features.operation.state import KINDS as OPERATION_KINDS, apply_change as apply_operation, validate_batch as validate_operation_batch
 
 
 class ReplayError(ValueError):

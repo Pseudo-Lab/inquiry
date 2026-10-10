@@ -4,8 +4,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
-from .replay import replay
-from .store import Store
+from inquiry.domain.replay import replay
+from inquiry.store.store import Store
 
 
 def _next_id(prefix, objects):
