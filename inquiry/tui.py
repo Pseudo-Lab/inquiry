@@ -6,17 +6,31 @@ Textual 기반(ADR-D7 Gate B 항목4 선정).
   모델 연산은 취소 가능한 thread 워커로 돌리고(협조적 cancelled), 결과는
   사람이 accept/reject로 확정한다(ADR-D5 human-approval).
 """
+from rich.cells import cell_len
 from rich.text import Text
 from textual import work
 from textual.worker import get_current_worker
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical
-from textual.widgets import DataTable, Footer, Header, Input, Static
+from textual.widgets import Footer, Header, Input, OptionList, Static
+from textual.widgets.option_list import Option
 
 from .commands import Commands
 from .graphlog import lane_rows
 from .operations import OperationsService
+
+SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"   # 모델 연산 실행 중 애니메이션 프레임
+
+
+def _pad(text, width):
+    """CJK 폭(cell_len) 기준 패딩/절단 — 한글 열 정렬."""
+    out = ""
+    for ch in text:
+        if cell_len(out + ch) > width:
+            break
+        out += ch
+    return out + " " * (width - cell_len(out))
 
 # 실루엣이 서로 다른 기호 — 색 없이(흑백)도 구분된다(Gate B 항목3 후속).
 # 색은 기본 출력에서 상태를 한눈에 구분(기본=컬러 결정, 흑백은 기호로 폴백).
@@ -88,8 +102,8 @@ class InquiryTUI(App):
         padding: 0 1;
         background: $panel;
     }
-    #map > .datatable--header { text-style: bold; color: $accent; }
-    #map > .datatable--cursor { background: $accent 30%; }
+    #map > .option-list--option-highlighted { background: $accent 35%; text-style: bold; }
+    #map:focus > .option-list--option-highlighted { background: $accent 55%; }
     #details {
         height: auto; max-height: 42%;
         border: round $primary;
@@ -116,6 +130,9 @@ class InquiryTUI(App):
         self.pending_kind = None       # 'op' | 'branch'
         self.marked = set()            # synthesize 대상으로 표시한 가설 ID
         self._op_worker = None
+        self._spin_timer = None        # 연산 중 스피너 타이머
+        self._spin_i = 0
+        self._spin_label = ""
         self._reload_state()
 
     def _reload_state(self):
@@ -125,7 +142,7 @@ class InquiryTUI(App):
     def compose(self) -> ComposeResult:
         yield Header()
         with Vertical():
-            yield DataTable(id="map", cursor_type="row", zebra_stripes=True)
+            yield OptionList(id="map")
             yield Static("", id="details")
         yield Static(HELP, id="status")
         yield Input(placeholder="명령 (: 로 포커스)", id="cmd")
@@ -140,41 +157,81 @@ class InquiryTUI(App):
         self.query_one("#map").border_subtitle = f"{len(self.nodes)} nodes"
         self.query_one("#details").border_title = "Details"
         self._rebuild_table(select=0)
-        self.query_one("#map", DataTable).focus()
+        self.query_one("#map", OptionList).focus()
+
+    def _connector_info(self):
+        """hid → ('fork'|'merge'|None, parents): 대각선 커넥터용."""
+        all_ids = {n.id for n in self.nodes}
+        childmap = {}
+        for n in self.nodes:
+            for p in n.parent_ids:
+                if p in all_ids:
+                    childmap.setdefault(p, []).append(n.id)
+        info = {}
+        for n in self.nodes:
+            parents = [p for p in n.parent_ids if p in all_ids]
+            if len(parents) >= 2:
+                info[n.id] = ('merge', parents)
+            elif len(parents) == 1 and childmap.get(parents[0], [None])[0] != n.id:
+                info[n.id] = ('fork', parents)
+            else:
+                info[n.id] = (None, parents)
+        return info
 
     def _rebuild_table(self, select=None):
-        table = self.query_one("#map", DataTable)
-        keep = table.cursor_row if select is None else select
-        table.clear(columns=True)
-        table.add_columns("GRAPH", "ID", "HYPOTHESIS", "STATUS")
+        opts = self.query_one("#map", OptionList)
+        keep = opts.highlighted if select is None else select
+        opts.clear_options()
         lanes = lane_rows(self.nodes)
+        conn = self._connector_info()
         for idx, h in enumerate(self.nodes):
-            sym, label = STATUS.get(h.status, ('?', h.status))
-            style = STATUS_STYLE.get(h.status, 'white')
             cells, col = lanes[idx]
-            graph = self._graph_text(cells, col, sym, style, h.id in self.marked)
-            status_cell = Text(f"{sym} {label}", style=style)
-            table.add_row(graph, Text(h.id, style="grey70"), h.title, status_cell, key=h.id)
+            kind, parents = conn[h.id]
+            opts.add_option(Option(self._node_text(h, cells, col, kind, parents), id=h.id))
         if self.nodes:
             row = min(keep or 0, len(self.nodes) - 1)
-            table.move_cursor(row=row)
+            opts.highlighted = row
             self._show(self.nodes[row].id)
         else:
             self.query_one("#details", Static).update(
                 "이 탐구에는 아직 가설이 없습니다. framing으로 프레임을 승인하세요.")
 
-    def _graph_text(self, cells, col, symbol, style, marked):
+    def _lane_prefix(self, cells, col, sym, style, marked, override=None):
+        """레인 글리프 한 줄. override로 col 위치에 커넥터 글리프(╲/╱)를 넣는다."""
         t = Text()
         t.append("•" if marked else " ", style="bold yellow" if marked else "")
         for i, ch in enumerate(cells):
             if i == col:
-                t.append(symbol, style=style)
-            elif ch == '@':
+                t.append(override or sym, style=style)
+            elif ch in ('@', ' '):
                 t.append(' ')
             else:
-                t.append(ch, style="grey42")   # 레인 바는 흐리게
+                t.append('│', style="grey42")
             t.append(' ')
         return t
+
+    def _node_text(self, h, cells, col, kind, parents):
+        sym, label = STATUS.get(h.status, ('?', h.status))
+        style = STATUS_STYLE.get(h.status, 'white')
+        marked = h.id in self.marked
+        body = Text()
+        # 대각선 커넥터 라인(위→아래 계보): fork는 ╲, merge는 ╱ + 라벨
+        if kind == 'fork':
+            line = self._lane_prefix(cells, col, sym, "grey50", marked, override='╲')
+            line.append("Fork", style="grey50")
+            body.append_text(line)
+            body.append("\n")
+        elif kind == 'merge':
+            line = self._lane_prefix(cells, col, sym, "grey50", marked, override='╱')
+            line.append("Merge / " + " + ".join(parents), style="grey50")
+            body.append_text(line)
+            body.append("\n")
+        # 노드 라인: 레인+기호 · ID · 제목 · 상태
+        body.append_text(self._lane_prefix(cells, col, sym, style, marked))
+        body.append(_pad(h.id, 8) + " ", style="grey70")
+        body.append(_pad(h.title, 28) + " ")
+        body.append(f"{sym} {label}", style=style)
+        return body
 
     def _show(self, hid):
         h = self.state.hypotheses.get(hid)
@@ -184,17 +241,37 @@ class InquiryTUI(App):
     def _set_status(self, text):
         self.query_one("#status", Static).update(text)
 
+    # --- 연산 중 스피너 애니메이션 ---
+    def _start_spinner(self, label):
+        self._spin_label = label
+        self._spin_i = 0
+        if self._spin_timer is None:
+            self._spin_timer = self.set_interval(0.1, self._tick_spinner)
+        self._tick_spinner()
+
+    def _tick_spinner(self):
+        frame = SPINNER[self._spin_i % len(SPINNER)]
+        self._spin_i += 1
+        self.query_one("#status", Static).update(
+            Text.assemble((f"{frame} ", "bold cyan"), (f"{self._spin_label} ", ""),
+                          ("(cancel/Esc로 취소)", "grey50")))
+
+    def _stop_spinner(self):
+        if self._spin_timer is not None:
+            self._spin_timer.stop()
+            self._spin_timer = None
+
     @property
     def _current_hid(self):
-        table = self.query_one("#map", DataTable)
-        row = table.cursor_row
-        if self.nodes and 0 <= row < len(self.nodes):
+        opts = self.query_one("#map", OptionList)
+        row = opts.highlighted
+        if self.nodes and row is not None and 0 <= row < len(self.nodes):
             return self.nodes[row].id
         return None
 
-    def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted):
-        if event.row_key is not None and event.row_key.value is not None:
-            self._show(event.row_key.value)
+    def on_option_list_option_highlighted(self, event: OptionList.OptionHighlighted):
+        if event.option is not None and event.option.id is not None:
+            self._show(event.option.id)
 
     # --- commands ---
     def action_focus_cmd(self):
@@ -205,12 +282,12 @@ class InquiryTUI(App):
             self._op_worker.cancel()
             self._set_status("연산 취소 요청됨…")
         else:
-            self.query_one("#map", DataTable).focus()
+            self.query_one("#map", OptionList).focus()
 
     def on_input_submitted(self, event: Input.Submitted):
         text = event.value.strip()
         event.input.value = ""
-        self.query_one("#map", DataTable).focus()
+        self.query_one("#map", OptionList).focus()
         if text:
             self._dispatch(text)
 
@@ -254,7 +331,7 @@ class InquiryTUI(App):
         if match is None:
             self._set_status(f"'{query}' 노드를 찾을 수 없습니다.")
             return
-        self.query_one("#map", DataTable).move_cursor(row=match)
+        self.query_one("#map", OptionList).highlighted = match
         self._show(self.nodes[match].id)
         self._set_status(f"{self.nodes[match].id} (행 {match + 1}/{len(self.nodes)})")
 
@@ -282,7 +359,7 @@ class InquiryTUI(App):
         if factory is None:
             self._set_status(f"{operation} 어댑터가 설정되지 않았습니다(읽기 전용).")
             return
-        self._set_status(f"{operation} 실행 중… (cancel/Esc로 취소)")
+        self._start_spinner(f"{operation} 실행 중")
         self._op_worker = self._run_op(operation, hid, factory)
 
     @work(thread=True, exclusive=True, group="op")
@@ -299,11 +376,13 @@ class InquiryTUI(App):
         self.call_from_thread(self._op_done, operation, proposal)
 
     def _op_failed(self, msg):
+        self._stop_spinner()
         self.pending = None
         self.pending_kind = None
         self._set_status(msg)
 
     def _op_done(self, operation, proposal):
+        self._stop_spinner()
         self.pending = proposal
         self.pending_kind = 'op'
         self._set_status(
@@ -321,7 +400,7 @@ class InquiryTUI(App):
         if factory is None:
             self._set_status("fork 어댑터가 설정되지 않았습니다(읽기 전용).")
             return
-        self._set_status("fork 실행 중… (cancel/Esc로 취소)")
+        self._start_spinner("fork 실행 중")
         self._op_worker = self._run_fork(hid, factory)
 
     @work(thread=True, exclusive=True, group="op")
@@ -338,6 +417,7 @@ class InquiryTUI(App):
         self.call_from_thread(self._branch_done, proposal)
 
     def _branch_done(self, proposal):
+        self._stop_spinner()
         self.pending = proposal
         self.pending_kind = 'branch'
         cands = proposal.get('candidates', [])
@@ -371,7 +451,7 @@ class InquiryTUI(App):
         if factory is None:
             self._set_status("synthesize 어댑터가 설정되지 않았습니다(읽기 전용).")
             return
-        self._set_status(f"synthesize 실행 중… {targets} (cancel/Esc로 취소)")
+        self._start_spinner(f"synthesize 실행 중 {targets}")
         self._op_worker = self._run_synth(targets, factory)
 
     @work(thread=True, exclusive=True, group="op")

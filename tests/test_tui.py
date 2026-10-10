@@ -4,7 +4,7 @@ import tempfile
 import threading
 import unittest
 
-from textual.widgets import DataTable, Static
+from textual.widgets import OptionList, Static
 
 from inquiry.adapter import RunSignal
 from inquiry.commands import Commands
@@ -31,8 +31,8 @@ class TUITests(unittest.IsolatedAsyncioTestCase):
     async def test_map_lists_hypotheses_and_arrow_updates_details(self):
         app = InquiryTUI(self._make())
         async with app.run_test(size=(120, 30)) as pilot:
-            table = app.query_one('#map', DataTable)
-            self.assertEqual(table.row_count, 2)
+            table = app.query_one('#map', OptionList)
+            self.assertEqual(table.option_count, 2)
             d0 = str(app.query_one('#details', Static).render())
             self.assertIn('전면 재택', d0)
             await pilot.press('down')
@@ -51,7 +51,7 @@ class TUITests(unittest.IsolatedAsyncioTestCase):
     async def test_empty_inquiry_shows_placeholder(self):
         app = InquiryTUI(self._make(with_nodes=False))
         async with app.run_test(size=(80, 24)) as pilot:
-            self.assertEqual(app.query_one('#map', DataTable).row_count, 0)
+            self.assertEqual(app.query_one('#map', OptionList).option_count, 0)
             self.assertIn('가설이 없', str(app.query_one('#details', Static).render()))
 
 
@@ -120,8 +120,8 @@ class TUIOperationTests(unittest.IsolatedAsyncioTestCase):
         Commands(tmp.name).synthesize([p1, p2], '통합', '통합 주장', '두 부모 결합')
         app = InquiryTUI(tmp.name)
         async with app.run_test(size=(100, 24)) as pilot:
-            table = app.query_one('#map', DataTable)
-            graph_cells = [str(table.get_row_at(i)[0]) for i in range(table.row_count)]
+            opts = app.query_one('#map', OptionList)
+            graph_cells = [str(opts.get_option_at_index(i).prompt) for i in range(opts.option_count)]
         self.assertTrue(any('│' in c for c in graph_cells), f'레인 바 없음: {graph_cells}')
 
     async def test_synthesize_marks_two_parents_then_accept_creates_node(self):
@@ -160,7 +160,7 @@ class TUIOperationTests(unittest.IsolatedAsyncioTestCase):
         async with app.run_test(size=(100, 24)) as pilot:
             app._dispatch(f'find {ids[3]}')
             await pilot.pause()
-            self.assertEqual(app.query_one('#map', DataTable).cursor_row, 3)
+            self.assertEqual(app.query_one('#map', OptionList).highlighted, 3)
             self.assertIn(ids[3], str(app.query_one('#status', Static).render()))
             app._dispatch('find H-999')
             await pilot.pause()
