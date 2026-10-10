@@ -163,6 +163,20 @@ def main(argv=None, *, adapter=None):
     add.add_argument('--parent', action='append', default=[])
     add.add_argument('--assumption', action='append', default=[])
     add.add_argument('--falsified-if', action='append', default=[])
+    action = subs.add_parser('action', help='Checkbox next-actions attached to a hypothesis').add_subparsers(dest='operation', required=True)
+    add = action.add_parser('add')
+    add.add_argument('target')
+    add.add_argument('title')
+    action.add_parser('check').add_argument('action_id')
+    action.add_parser('uncheck').add_argument('action_id')
+    subs.add_parser('actions', help='List actions grouped by hypothesis')
+    weekly = subs.add_parser('weekly', help='Seven-day view of how the inquiry changed')
+    weekly.add_argument('--days', type=_positive_int, default=7)
+    write = subs.add_parser('write', help='Markdown export regenerated from the event log')
+    write_subs = write.add_subparsers(dest='operation', required=True)
+    write_weekly = write_subs.add_parser('weekly')
+    write_weekly.add_argument('--days', type=_positive_int, default=7)
+    write_weekly.add_argument('--out', type=Path)
     evidence = subs.add_parser('evidence').add_subparsers(dest='operation', required=True)
     add = evidence.add_parser('add')
     add.add_argument('target')
@@ -331,6 +345,38 @@ def main(argv=None, *, adapter=None):
             result = commands.initialize(args.seed, {'question': args.question})
         elif args.command == 'hypothesis':
             result = commands.add_hypothesis(args.title, args.claim, args.parent, args.assumption, args.falsified_if)
+        elif args.command == 'action':
+            if args.operation == 'add':
+                result = commands.add_action(args.target, args.title)
+            else:
+                result = commands.check_action(args.action_id, done=args.operation == 'check')
+        elif args.command == 'actions':
+            state = commands.state()
+            if not state.actions:
+                print('Actions가 없습니다.')
+                return
+            for node_id in sorted({action.hypothesis_id for action in state.actions.values()}):
+                node = state.hypotheses[node_id]
+                print(f'{node.id} {node.title} — {node.status}')
+                for action in sorted(state.actions.values(), key=lambda item: item.id):
+                    if action.hypothesis_id == node_id:
+                        print(f"  [{'x' if action.done else ' '}] {action.id} {action.title}")
+            return
+        elif args.command in ('weekly', 'write'):
+            from .replay import replay
+            from .store import Store
+            from .weekly import build, render_markdown, render_text
+            events = Store(args.dir).read_all()
+            report = build(events, replay(events), days=args.days)
+            if args.command == 'weekly':
+                print(render_text(report))
+            elif args.out is not None:
+                args.out.parent.mkdir(parents=True, exist_ok=True)
+                args.out.write_text(render_markdown(report), encoding='utf-8')
+                print(json.dumps({'out': str(args.out)}, ensure_ascii=False))
+            else:
+                print(render_markdown(report))
+            return
         elif args.command == 'evidence':
             relation = 'supports' if args.supports else 'challenges'
             if args.operation == 'add':

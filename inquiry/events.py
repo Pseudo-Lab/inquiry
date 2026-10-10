@@ -37,6 +37,9 @@ CHANGE_FIELDS = {
     'EvidenceLinked': frozenset({'kind', 'evidence_id', 'hypothesis_id', 'relation'}),
     'HypothesisStateChanged': frozenset({'kind', 'hypothesis_id', 'from', 'to', 'trigger', 'actor', 'at', 'reason',
                                        'evidence_ids', 'evidence_snapshot', 'reopen_if', 'synthesis_target'}),
+    'ActionCreated': frozenset({'kind', 'action_id', 'hypothesis_id', 'title'}),
+    'ActionChecked': frozenset({'kind', 'action_id'}),
+    'ActionUnchecked': frozenset({'kind', 'action_id'}),
     'RunStarted': frozenset({'kind', 'run_id', 'operation', 'model', 'target_ids', 'session_id', 'max_output_tokens', 'timeout'}),
     'RunDispatched': frozenset({'kind', 'run_id'}),
     'RunProgress': frozenset({'kind', 'run_id', 'text', 'provider_request_id'}),
@@ -248,6 +251,11 @@ def validate_event(event):
                 _text(change['uri'], 'uri')
             if change['type'] in ('external-article', 'dataset') and not change['uri']:
                 raise EventValidationError('External articles and datasets require a source URI.')
+        elif kind == 'ActionCreated':
+            for key in ('action_id', 'hypothesis_id', 'title'):
+                _text(change[key], key)
+        elif kind in ('ActionChecked', 'ActionUnchecked'):
+            _text(change['action_id'], 'action_id')
         elif kind == 'EvidenceLinked':
             for key in ('evidence_id', 'hypothesis_id'):
                 _text(change[key], key)
