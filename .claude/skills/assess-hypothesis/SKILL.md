@@ -9,6 +9,7 @@ Inquiry의 가설 confidence를 [ADR-D3](../../../docs/decisions/ADR-D3-confiden
 **구조·원칙은 D3에 동결**되어 있고, 이 문서는 **축별 앵커 문구 + calibration 사례**를 담아 사례가 쌓이며 정교화된다.
 
 > 상태: v0 초안. 앵커는 아래 "Calibration 사례"가 늘어남에 따라 교정된다(D5·D6이 수치를 M3 실측으로 미룬 것과 동일 패턴).
+> 2026-10-10 보강: [평가 기준 공백 리서치](../../../reference/evaluation-criteria-gaps-research.md) 반영 — 재채점 규칙(원칙 6)·축 비합산(원칙 7)·GRADE 범위 확장 트리거·균형 축 명시·채점 관행.
 
 ## 채점 원칙 (D3에서 동결)
 
@@ -17,14 +18,45 @@ Inquiry의 가설 confidence를 [ADR-D3](../../../docs/decisions/ADR-D3-confiden
 3. **evidence는 시스템 밖 독립 자료만.** 허용: `external-article` · `measured-result` · `human-interview` · `human-judgment` · `dataset`. **`llm-opinion` 금지**(순환). 판정: *LLM이 사라져도 남는 것만 evidence.*
 4. **evidence_strength ↔ plausibility 분리.** 그럴듯함(mechanism)과 근거 강도(확보한 자료)는 절대 합치지 않는다. 근거 없이도 plausibility는 높을 수 있고, 그 반대도 가능.
 5. **source 위계** `agent-estimate` < `human-judgment` < `measured-result`. agent-estimate는 제안일 뿐 자동 확정 금지.
+6. **재채점은 새 외부 evidence가 있을 때만.** 사용자·에이전트의 반박 텍스트만으로 등급을 바꾸지 않는다(D3 원칙 4, sycophancy 차단). 반박을 받으면: ① 이전 등급·evidence_ref를 다시 제시 → ② "무엇이 바뀌었나"를 evidence로 요구 → ③ 새 외부 자료가 없으면 **등급 유지**하고 반박 요지를 해당 축 rationale의 열린질문에 기록.
+7. **축은 합산하지 않는다.** 신뢰 축(plausibility·evidence_strength)과 포트폴리오 축(novelty·impact)은 묻는 질문이 다르다("참인가" vs "탐구할 가치가 있는가"). 단일 종합 점수 생성 금지. 다음 행동 선정은 `impact × testability` 교차로 본다(CAL-002).
 
 ## 채점 절차
 
 1. 가설의 `claim`·`assumptions`·`falsified_if` 와 첨부된 evidence를 읽는다.
 2. **evidence를 먼저 원칙 3으로 필터** — llm-opinion·근거 없는 것은 제외.
 3. 각 축마다: 앵커 사다리에서 충족하는 최고 등급을 찾고, 인접 등급이 애매하면 범위로 표현.
-4. 각 축 값에 그 판단의 근거가 된 `evidence_ref`를 남긴다.
-5. 출력 형식(아래)으로 반환. source는 채점 주체에 맞게.
+4. **범위 확장 트리거 점검** (아래 GRADE 섹션) — 해당 도메인이 있으면 범위를 인접 하위 등급 쪽으로 넓힌다.
+5. 각 축 값에 그 판단의 근거가 된 `evidence_ref`를 남긴다.
+6. 출력 형식(아래)으로 반환. source는 채점 주체에 맞게.
+
+**채점 관행** ([리서치](../../../reference/evaluation-criteria-gaps-research.md) §3 권고):
+- **형제 가설은 같이 채점**한다 — 한 Inquiry의 경쟁 가설을 동시 채점하면 공통 블로커·비전가설이 드러나고(CAL-002), 상대 비교가 단일 가설 확증을 억제한다.
+- 형제 채점 시 **제시 순서를 바꿔 한 번 더 훑는다**(position bias 완화). 순서를 바꿨을 때 등급이 흔들리면 그 축은 범위를 넓힌다.
+- **긴 추론 사슬에 의존한 자기채점을 지양**한다 — 확장 추론은 초기 판단을 증거 없이 강화하는 경향(확장 추론 내 확증편향). 앵커 대조는 짧고 구조적으로.
+- 가설×증거를 표로 펼칠 때는 **가설=행, 증거=열** 방향(Dhami et al. 2024 — 이 방향만 확증편향 감소 효과 유의).
+
+### 재채점 절차 (원칙 6)
+
+1. 이전 assessment(등급·범위·evidence_ref)를 먼저 로드해 함께 표시한다.
+2. 이전 채점 이후 **새로 추가된 외부 evidence**(원칙 3 통과분)만 추린다.
+3. 새 evidence가 없으면: 등급 유지. 반박·이의 요지는 해당 축 rationale의 열린질문에 추가하고 "무엇이 오면 바뀌는지"를 명시.
+4. 새 evidence가 있으면: 해당 축만 재대조하고, 변경 시 `{from, to, evidence_ref}`를 기록(D3 업데이트 규칙).
+
+## 범위 확장 트리거 — GRADE 하향 도메인 전사 (v0)
+
+증거 "량"이 아니라 "질·구조"의 결함은 등급을 *내리는* 게 아니라 **범위(불확실성)를 넓힌다**. GRADE의 5개 하향 도메인([리서치 §2.2](../../../reference/evaluation-criteria-gaps-research.md))을 Inquiry 용어로:
+
+| 도메인 | Inquiry에서 | 예 |
+|---|---|---|
+| risk of bias | 출처 품질·이해관계 의심 | 벤더 자료만 있는 성능 주장 |
+| inconsistency | 확보 evidence끼리 상충 | 인터뷰 2건이 반대 방향 |
+| indirectness | 간접·proxy 증거뿐 | 인접 도메인 사례로 유추 |
+| imprecision | 표본·관찰이 극소수 | 인터뷰 1건, 단일 측정 |
+| selection bias | 한쪽 방향만 검색·수집됨 | 지지 자료만 찾고 반례 미탐색 |
+
+- **운용 규칙(v0):** 해당 도메인 1개당 범위 경계 1개를 인접 등급 쪽으로 확장, 축당 최대 1등급. (예: L3 확신 `[0.6, 0.8]` + inconsistency → `[0.5, 0.8]`.) 몇 등급이 적정한지는 M3 사례로 교정(D3 열린 질문).
+- 중앙값은 그대로 두고 **폭만 넓히는 것**이 원칙 — 결함은 "모름"이지 "낮음"이 아니다.
 
 ## 5단계 눈금 (전역)
 
@@ -53,11 +85,19 @@ Inquiry의 가설 confidence를 [ADR-D3](../../../docs/decisions/ADR-D3-confiden
 - **L4 (0.8–1.0)** 확립된 원리에서 거의 필연적으로 도출. 반증하려면 알려진 법칙을 뒤집어야.
 
 ### evidence_strength — 확보한 근거가 얼마나 강한가 (그럴듯함과 무관)
+
+**균형 축이다** — 지지·반증 증거를 모두 반영하며, 반증 증거에만 가중하지 않는다(순수 반증 채점은 disconfirmation bias를 부른다 — [리서치 §1.3](../../../reference/evaluation-criteria-gaps-research.md)). 등급은 "방향과 무관하게 확보한 자료의 증거력"이고, 방향(지지/반박)은 evidence의 `relation`이 든다.
+
 - **L0 (0.0–0.2)** 근거 없음 / 추측.
 - **L1 (0.2–0.4)** 일화적·간접 (포럼 불평, 단일 개인 의견).
 - **L2 (0.4–0.6)** 복수의 독립된 1차 자료 (다수 인터뷰, 공개 데이터셋).
 - **L3 (0.6–0.8)** 직접 관찰 / 파일럿 데이터.
 - **L4 (0.8–1.0)** 통제된 실험 / 재현된 측정.
+
+**일치/불일치 판정 예시** (ACH의 셀 채점 모호성 교정 — 기준을 구체로):
+- *지지(supports)로 센다:* 가설의 `claim`이 참일 때 관찰될 것으로 예측되는 내용이 자료에 실측·보고됨.
+- *반박(challenges)으로 센다:* `falsified_if` 조건 중 하나가 자료에서 관찰됨, 또는 claim이 참이면 없어야 할 것이 관찰됨.
+- *어느 쪽도 아니다:* 가설과 무관하거나 양쪽 해석이 모두 가능한 자료 — 링크하지 않거나 열린질문으로.
 
 ### novelty — 기존 그래프에 없던 새 관점·정보를 더하는가 (반복 감지)
 - **L0 (0.0–0.2)** 기존 가설·근거의 중복 (새 근거·전제·연결 0).
