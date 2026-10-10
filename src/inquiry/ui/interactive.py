@@ -271,8 +271,8 @@ def run_conversation(root, *, adapter_factory, read=None, write=None,
                 question = view['outstanding_questions'][0]
                 index = next(i for i, q in enumerate(view['questions'], 1) if q['qid'] == question['qid'])
                 console.line(f"\nQuestion {index} / {len(view['questions'])} — 현재까지 생성된 질문 (최대 5개)")
-                if view['control'] and view['control']['question_rationale']:
-                    console.line('Why: ' + view['control']['question_rationale'])
+                # question_rationale(배치 단위 생성 이유)은 질문마다 반복 노출돼
+                # 혼란을 줬음(사용자 피드백 2026-10-10) — 저장은 유지, 표시만 생략.
                 console.line(question['text'])
                 service.answer(sid, question['qid'], console.text('답변 > '))
                 console.line('Saved')
