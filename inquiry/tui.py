@@ -6,6 +6,13 @@ Textual 기반(ADR-D7 Gate B 항목4 선정).
   모델 연산은 취소 가능한 thread 워커로 돌리고(협조적 cancelled), 결과는
   사람이 accept/reject로 확정한다(ADR-D5 human-approval).
 """
+import os
+
+# 한글 IME 보존: Textual의 kitty 키보드 프로토콜은 iTerm2에서 키를 raw 이벤트로
+# 보고해 macOS IME 조합을 우회한다(자모가 낱개로 들어옴). textual import 전에
+# 기본으로 끈다(사용자 env 설정이 있으면 존중). 진단: 2026-10-10 ime-diag 로그.
+os.environ.setdefault("TEXTUAL_DISABLE_KITTY_KEY", "1")
+
 from rich import box
 from rich.cells import cell_len
 from rich.table import Table
@@ -147,12 +154,31 @@ class _Proxy:
         return getattr(self._node, name)
 
 
+class IMEInput(Input):
+    """IME 커서 위치가 정확한 Input.
+
+    Textual Input은 커서가 끝에 있을 때 셀 오프셋에 +1을 더해(_cursor_offset)
+    실제 터미널 커서(IME 조합 글자 위치)가 한 칸 오른쪽에 뜬다. 한글 조합에서만
+    보이는 off-by-one이라 여기서 +1 없이 계산한다(2026-10-10 사용자 보고).
+    """
+
+    @property
+    def cursor_screen_offset(self):
+        from textual.geometry import Offset
+        x, y, _w, _h = self.content_region
+        scroll_x, _ = self.scroll_offset
+        return Offset(x + self._position_to_cell(self.cursor_position) - scroll_x, y)
+
+
 class GraphView(Static):
     """포커스 가능한 git-log 지도 — Rich Table을 렌더하고 ↑/↓(k/j)로 선택 이동."""
     can_focus = True
     BINDINGS = [
         Binding("up,k", "move(-1)", "위", show=False),
         Binding("down,j", "move(1)", "아래", show=False),
+        # ':'는 지도에서만 명령창 포커스로 작동 — App 전역이면 Input 포커스 중
+        # ':' 문자 입력을 가로챈다.
+        Binding("colon", "app.focus_cmd", "명령", key_display=":"),
     ]
 
     def action_move(self, delta: int):
@@ -177,7 +203,6 @@ class InquiryTUI(App):
     """
     BINDINGS = [
         Binding("q", "quit", "Quit"),
-        Binding("colon", "focus_cmd", "명령", key_display=":"),
         Binding("escape", "cancel_op", "취소"),
     ]
 
@@ -214,7 +239,7 @@ class InquiryTUI(App):
                 yield GraphView(id="map")
             yield Static("", id="details")
         yield Static(HELP, id="status")
-        yield Input(placeholder="명령 (: 로 포커스)", id="cmd")
+        yield IMEInput(placeholder="명령 (: 로 포커스)", id="cmd")
         yield Footer()
 
     def on_mount(self):
