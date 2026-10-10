@@ -6,19 +6,31 @@ Textual 기반(ADR-D7 Gate B 항목4 선정).
   모델 연산은 취소 가능한 thread 워커로 돌리고(협조적 cancelled), 결과는
   사람이 accept/reject로 확정한다(ADR-D5 human-approval).
 """
+import os
+
+# 한글 IME 보존: Textual의 kitty 키보드 프로토콜은 iTerm2에서 키를 raw 이벤트로
+# 보고해 macOS IME 조합을 우회한다(자모가 낱개로 들어옴). textual import 전에
+# 기본으로 끈다(사용자 env 설정이 있으면 존중). 진단: 2026-10-10 ime-diag 로그.
+os.environ.setdefault("TEXTUAL_DISABLE_KITTY_KEY", "1")
+
 from rich import box
 from rich.cells import cell_len
 from rich.table import Table
 from rich.text import Text
+from textual import constants as _textual_constants
 from textual import work
 from textual.worker import get_current_worker
+
+# env가 늦게 설정돼도(다른 모듈이 textual을 먼저 import) 확실히 끈다 —
+# 드라이버는 이 상수를 시작 시점(런타임)에 읽는다.
+_textual_constants.DISABLE_KITTY_KEY = True
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical, VerticalScroll
 from textual.widgets import Footer, Header, Input, Static
 
 from .commands import Commands
-from .graphlog import lane_rows
+from .graphlog import graph_rows
 from .operations import OperationsService
 
 SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"   # 모델 연산 실행 중 애니메이션 프레임
@@ -33,17 +45,16 @@ def _pad(text, width):
         out += ch
     return out + " " * (width - cell_len(out))
 
-# 실루엣이 서로 다른 기호 — 색 없이(흑백)도 구분된다(Gate B 항목3 후속).
-# 색은 기본 출력에서 상태를 한눈에 구분(기본=컬러 결정, 흑백은 기호로 폴백).
+# STATUS 열 기호 — scale.py(m1b)와 동일 세트. GRAPH 열 노드 점은 '*'로 통일.
 STATUS = {
-    'suggested': ('○', 'Suggested'),
-    'exploring': ('▷', 'Exploring'),
-    'supported': ('✓', 'Supported'),
-    'contested': ('!', 'Contested'),
-    'suspended': ('=', 'Suspended'),
-    'refuted': ('✗', 'Refuted'),
+    'suggested': ('◌', 'Suggested'),
+    'exploring': ('◉', 'Exploring'),
+    'supported': ('●', 'Supported'),
+    'contested': ('◐', 'Contested'),
+    'suspended': ('∙', 'Suspended'),
+    'refuted': ('×', 'Refuted'),
     'synthesized': ('◆', 'Synthesized'),
-    'human-closed': ('■', 'Closed'),
+    'human-closed': ('⊘', 'Closed'),
 }
 STATUS_STYLE = {
     'suggested': 'grey62',
@@ -55,6 +66,9 @@ STATUS_STYLE = {
     'synthesized': 'bold magenta',
     'human-closed': 'grey50',
 }
+# GRAPH 열 레인(브랜치)별 색 — 분기되면 머지 전까지 레인마다 다른 색.
+LANE_COLORS = ("bright_white", "bright_cyan", "bright_magenta", "bright_green",
+               "bright_yellow", "bright_blue", "bright_red", "orange1")
 MODEL_OPS = ('deepen', 'challenge')
 LEGEND = "  ".join(f"{sym} {label}" for sym, label in STATUS.values())
 HELP = ("명령: start · deepen · challenge · fork · mark · synthesize · "
@@ -62,7 +76,39 @@ HELP = ("명령: start · deepen · challenge · fork · mark · synthesize · "
 
 
 def _order(state):
-    return list(state.hypotheses.values())
+    """표시 순서: 루트에서 DFS로 부모 바로 아래 자식을 모은다(계보 그룹화).
+
+    생성 순서는 부모·자식이 흩어져 레인이 지저분하고 대각선이 안 그려진다.
+    DFS 토폴로지(부모가 모두 그려진 뒤에만 자식을 그림)로 바꾸면 fork가 부모
+    바로 밑에 붙어 ╲/╱ 커넥터가 깔끔하게 나온다.
+    """
+    nodes = state.hypotheses
+    ids = list(nodes)  # 생성 순서(루트·형제 순서 보존)
+    children = {i: [] for i in ids}
+    remaining = {}
+    for i in ids:
+        parents = [p for p in nodes[i].parent_ids if p in nodes]
+        remaining[i] = len(parents)
+        for p in parents:
+            children[p].append(i)
+    order, emitted = [], set()
+
+    def emit(i):
+        order.append(i)
+        emitted.add(i)
+        for c in children[i]:
+            remaining[c] -= 1
+        for c in children[i]:
+            if remaining[c] == 0 and c not in emitted:
+                emit(c)
+
+    for i in ids:
+        if remaining[i] == 0 and i not in emitted:
+            emit(i)
+    for i in ids:  # 안전망(순환 등 예외)
+        if i not in emitted:
+            order.append(i)
+    return [nodes[i] for i in order]
 
 
 def _detail_text(h, state):
@@ -92,12 +138,52 @@ def _detail_text(h, state):
     return "\n".join(lines)
 
 
+class _Root:
+    """표시 전용 루트 노드 — 탐구 자체. 모든 루트 가설의 가상 부모."""
+    id = 'ROOT'
+    parent_ids = ()
+    status = 'root'
+
+    def __init__(self, title):
+        self.title = title or '(탐구)'
+
+
+class _Proxy:
+    """루트 가설에 가상 부모 ROOT를 붙이는 표시용 래퍼."""
+    parent_ids = ('ROOT',)
+
+    def __init__(self, node):
+        self._node = node
+
+    def __getattr__(self, name):
+        return getattr(self._node, name)
+
+
+class IMEInput(Input):
+    """IME 커서 위치가 정확한 Input.
+
+    Textual Input은 커서가 끝에 있을 때 셀 오프셋에 +1을 더해(_cursor_offset)
+    실제 터미널 커서(IME 조합 글자 위치)가 한 칸 오른쪽에 뜬다. 한글 조합에서만
+    보이는 off-by-one이라 여기서 +1 없이 계산한다(2026-10-10 사용자 보고).
+    """
+
+    @property
+    def cursor_screen_offset(self):
+        from textual.geometry import Offset
+        x, y, _w, _h = self.content_region
+        scroll_x, _ = self.scroll_offset
+        return Offset(x + self._position_to_cell(self.cursor_position) - scroll_x, y)
+
+
 class GraphView(Static):
     """포커스 가능한 git-log 지도 — Rich Table을 렌더하고 ↑/↓(k/j)로 선택 이동."""
     can_focus = True
     BINDINGS = [
         Binding("up,k", "move(-1)", "위", show=False),
         Binding("down,j", "move(1)", "아래", show=False),
+        # ':'는 지도에서만 명령창 포커스로 작동 — App 전역이면 Input 포커스 중
+        # ':' 문자 입력을 가로챈다.
+        Binding("colon", "app.focus_cmd", "명령", key_display=":"),
     ]
 
     def action_move(self, delta: int):
@@ -122,7 +208,6 @@ class InquiryTUI(App):
     """
     BINDINGS = [
         Binding("q", "quit", "Quit"),
-        Binding("colon", "focus_cmd", "명령", key_display=":"),
         Binding("escape", "cancel_op", "취소"),
     ]
 
@@ -143,7 +228,14 @@ class InquiryTUI(App):
 
     def _reload_state(self):
         self.state = Commands(self.root).state()
-        self.nodes = _order(self.state)
+        real = _order(self.state)
+        if real:
+            # scale.py처럼 맨 위에 ROOT(탐구 자체)를 두고, 루트 가설들이 여기서 분기.
+            seed = self.state.inquiry.seed if self.state.inquiry else ''
+            self.nodes = [_Root(seed)] + [
+                _Proxy(n) if not n.parent_ids else n for n in real]
+        else:
+            self.nodes = []
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -152,7 +244,7 @@ class InquiryTUI(App):
                 yield GraphView(id="map")
             yield Static("", id="details")
         yield Static(HELP, id="status")
-        yield Input(placeholder="명령 (: 로 포커스)", id="cmd")
+        yield IMEInput(placeholder="명령 (: 로 포커스)", id="cmd")
         yield Footer()
 
     def on_mount(self):
@@ -161,27 +253,8 @@ class InquiryTUI(App):
         self.sub_title = frame.get("central_question") or (
             self.state.inquiry.seed if self.state.inquiry else "(빈 탐구)")
         self.query_one("#details").border_title = "Details"
-        self._rebuild_table(select=0)
+        self._rebuild_table(select=1 if len(self.nodes) > 1 else 0)
         self.query_one("#map", GraphView).focus()
-
-    def _connector_info(self):
-        """hid → ('fork'|'merge'|None, parents): 대각선 커넥터용."""
-        all_ids = {n.id for n in self.nodes}
-        childmap = {}
-        for n in self.nodes:
-            for p in n.parent_ids:
-                if p in all_ids:
-                    childmap.setdefault(p, []).append(n.id)
-        info = {}
-        for n in self.nodes:
-            parents = [p for p in n.parent_ids if p in all_ids]
-            if len(parents) >= 2:
-                info[n.id] = ('merge', parents)
-            elif len(parents) == 1 and childmap.get(parents[0], [None])[0] != n.id:
-                info[n.id] = ('fork', parents)
-            else:
-                info[n.id] = (None, parents)
-        return info
 
     def _rebuild_table(self, select=None):
         if select is not None:
@@ -206,38 +279,56 @@ class InquiryTUI(App):
         t.add_column("ID", no_wrap=True, style="grey74")
         t.add_column("HYPOTHESIS", ratio=1)
         t.add_column("STATUS", no_wrap=True)
-        lanes = lane_rows(self.nodes)
-        conn = self._connector_info()
-        for idx, h in enumerate(self.nodes):
-            cells, col = lanes[idx]
-            kind, parents = conn[h.id]
-            sym, label = STATUS.get(h.status, ('?', h.status))
-            style = STATUS_STYLE.get(h.status, 'white')
+        by_id = {n.id: n for n in self.nodes}
+        idx = {n.id: i for i, n in enumerate(self.nodes)}
+        for row in graph_rows(self.nodes):
+            if row['kind'] == 'fork':
+                t.add_row(self._edge_cell(row['cells']), "",
+                          Text("Fork", style="grey50"), "")
+                continue
+            if row['kind'] == 'merge':
+                t.add_row(self._edge_cell(row['cells']), "",
+                          Text("Merge / " + " + ".join(row['parents']), style="grey50"), "")
+                continue
+            h = by_id[row['id']]
             marked = h.id in self.marked
-            if kind == 'fork':
-                t.add_row(self._graph_cell(cells, col, '╲', "grey50", marked),
-                          "", Text("Fork", style="grey50"), "")
-            elif kind == 'merge':
-                t.add_row(self._graph_cell(cells, col, '╱', "grey50", marked),
-                          "", Text("Merge / " + " + ".join(parents), style="grey50"), "")
-            selected = (idx == self.sel)
-            t.add_row(self._graph_cell(cells, col, sym, style, marked),
-                      Text(h.id), Text(("▸ " if selected else "  ") + h.title),
-                      Text(f"{sym} {label}", style=style),
+            selected = (idx[h.id] == self.sel)
+            # GRAPH 열: 노드(*)·머지(◆)·분기선만, 레인별 색. 상태 기호 없음.
+            glyph = '◆' if row['merge'] else '*'
+            if h.status == 'root':
+                status_cell = Text("Inquiry", style="bold cyan")
+            else:
+                sym, label = STATUS.get(h.status, ('?', h.status))
+                status_cell = Text(f"{sym} {label}",
+                                   style=STATUS_STYLE.get(h.status, 'white'))
+            t.add_row(self._node_cell(row['cells'], row['col'], glyph, marked),
+                      Text('' if h.id == 'ROOT' else h.id),
+                      Text(("▸ " if selected else "  ") + h.title),
+                      status_cell,   # 상태 기호·색은 STATUS 열에만
                       style=("on grey30" if selected else None))
         return t
 
-    def _graph_cell(self, cells, col, glyph, style, marked=False):
+    def _node_cell(self, cells, col, glyph, marked=False):
+        """노드 행: col에 */◆, 나머지 활성 레인은 │ — 레인별 색(머지 전까지 유지)."""
         c = Text()
-        if marked:
-            c.append("•", style="bold yellow")
+        c.append("•" if marked else " ", style="bold yellow" if marked else "")
         for i, ch in enumerate(cells):
+            color = LANE_COLORS[i % len(LANE_COLORS)]
             if i == col:
-                c.append(glyph, style=style)
-            elif ch in ('@', ' '):
-                c.append(' ')
+                c.append(glyph, style=f"bold {color}")
+            elif ch == '│':
+                c.append('│', style=color)
             else:
-                c.append('│', style="grey42")
+                c.append(' ')
+            c.append(' ')
+        return c
+
+    def _edge_cell(self, cells):
+        """전환 행(│╲ / │╱): 글리프를 각 레인 색으로 그대로 그린다."""
+        c = Text(" ")
+        for i, ch in enumerate(cells):
+            color = LANE_COLORS[i % len(LANE_COLORS)]
+            c.append(ch if ch != ' ' else ' ', style=color)
             c.append(' ')
         return c
 
@@ -248,6 +339,16 @@ class InquiryTUI(App):
         self._rebuild_table()
 
     def _show(self, hid):
+        if hid == 'ROOT':
+            frame = (self.state.inquiry.frame if self.state.inquiry else {}) or {}
+            lines = [f"[b]ROOT[/b]  탐구",
+                     "", f"[b]중심 질문[/b] {frame.get('central_question', '-')}"]
+            if frame.get('purpose'):
+                lines.append(f"[b]목적[/b] {frame['purpose']}")
+            for c in frame.get('criteria', [])[:4]:
+                lines.append(f"  · {c}")
+            self.query_one("#details", Static).update("\n".join(lines))
+            return
         h = self.state.hypotheses.get(hid)
         if h is not None:
             self.query_one("#details", Static).update(_detail_text(h, self.state))
@@ -345,7 +446,8 @@ class InquiryTUI(App):
 
     def _transition(self, action):
         hid = self._current_hid
-        if hid is None:
+        if hid is None or hid == 'ROOT':
+            self._set_status('ROOT는 탐구 자체입니다 — 가설을 선택하세요.') if hid == 'ROOT' else None
             return
         try:
             Commands(self.root).decide(hid, action)
@@ -358,7 +460,8 @@ class InquiryTUI(App):
 
     def _start_op(self, operation):
         hid = self._current_hid
-        if hid is None:
+        if hid is None or hid == 'ROOT':
+            self._set_status('ROOT에는 연산할 수 없습니다 — 가설을 선택하세요.') if hid == 'ROOT' else None
             return
         if self._op_worker is not None and not self._op_worker.is_finished:
             self._set_status("다른 연산이 실행 중입니다. cancel 후 다시 시도하세요.")
@@ -399,7 +502,8 @@ class InquiryTUI(App):
     # --- fork (branch) ---
     def _start_fork(self):
         hid = self._current_hid
-        if hid is None:
+        if hid is None or hid == 'ROOT':
+            self._set_status('ROOT에는 연산할 수 없습니다 — 가설을 선택하세요.') if hid == 'ROOT' else None
             return
         if self._op_worker is not None and not self._op_worker.is_finished:
             self._set_status("다른 연산이 실행 중입니다. cancel 후 다시 시도하세요.")
@@ -438,7 +542,7 @@ class InquiryTUI(App):
     # --- synthesize (다중 선택) ---
     def _toggle_mark(self):
         hid = self._current_hid
-        if hid is None:
+        if hid is None or hid == 'ROOT':
             return
         if hid in self.marked:
             self.marked.discard(hid)
