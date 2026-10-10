@@ -63,11 +63,14 @@ STATUS_STYLE = {
     'contested': 'yellow',
     'suspended': 'grey62',
     'refuted': 'bold red',
-    'synthesized': 'bold magenta',
+    # magenta는 Textual 다크 테마에서 red와 같은 RGB(#f4005f)로 매핑돼 Refuted와
+    # 구분이 안 된다 — 테마를 거치지 않는 non-ANSI 색을 쓴다(2026-10-10 검증 발견).
+    'synthesized': 'bold medium_purple1',
     'human-closed': 'grey50',
 }
 # GRAPH 열 레인(브랜치)별 색 — 분기되면 머지 전까지 레인마다 다른 색.
-LANE_COLORS = ("bright_white", "bright_cyan", "bright_magenta", "bright_green",
+# bright_magenta도 테마에서 bright_red와 동일 RGB라 non-ANSI medium_orchid로 대체.
+LANE_COLORS = ("bright_white", "bright_cyan", "medium_orchid", "bright_green",
                "bright_yellow", "bright_blue", "bright_red", "orange1")
 MODEL_OPS = ('deepen', 'challenge')
 LEGEND = "  ".join(f"{sym} {label}" for sym, label in STATUS.values())
