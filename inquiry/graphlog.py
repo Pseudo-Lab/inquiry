@@ -1,24 +1,21 @@
 """순수 DAG 레인 배치 — git log --graph 식 세로 그래프를 실제 parent_ids에서 계산.
 
 위→아래가 계보(부모가 위, 자식이 아래, PRODUCT-CONCEPT §9). 각 노드는 하나의
-레인(열)을 차지하고, 활성 레인은 세로 바 │로 이어진다. fork(부모의 자식 2+)는
-새 레인을 열고, merge(자식의 부모 2+)·마지막 자식은 레인을 닫는다.
+레인(열)을 차지하고, 활성 레인은 세로 바 │로 이어진다.
 
-lane_rows(nodes)는 노드마다 (cells, col)을 돌려준다:
-- cells[i]: 레인 i의 글리프('│' 또는 ' '), col 위치는 '@'(노드 자리표시자)
-- col: 이 노드가 놓인 레인 인덱스
-렌더는 '@'를 상태 기호로 치환해 문자열로 만든다.
+graph_rows(nodes)는 git log --graph처럼 **전환 행까지** 돌려준다:
+- {'kind':'node', 'id', 'cells', 'col', 'merge':bool} — cells의 col 위치는 '@'
+- {'kind':'fork', 'cells', 'parent'}   — 새 레인이 ╲ 로 열리는 전환 행 (│╲)
+- {'kind':'merge', 'cells', 'parents', 'child'} — 레인이 ╱ 로 닫히는 전환 행 (│╱)
+
+레인 모델: lanes[i] = 그 레인이 '다음에 그릴 것으로 기다리는' 노드 id(또는 None).
+부모를 그릴 때 자식마다 레인을 예약한다 — 첫 자식은 부모 레인 재사용, 나머지는
+새 레인(fork 전환 행). 다중 부모 자식은 여러 레인이 기다리다가 그 노드 직전에
+merge 전환 행으로 왼쪽 레인에 합쳐진다.
 """
 
 
-def lane_rows(nodes):
-    """nodes: 부모가 먼저 오는 순서의 Hypothesis 목록. 반환: [(cells, col), …].
-
-    레인 모델: lanes[i] = 그 레인이 '다음에 그릴 것으로 기다리는' 노드 id(또는 None).
-    부모를 그릴 때 각 자식마다 기다림 레인을 예약한다 — 첫 자식은 부모 레인 재사용,
-    나머지는 새 레인(fork). 자식이 여러 부모를 가지면(merge) 여러 레인이 그 자식을
-    기다리게 되고, 자식을 그릴 때 왼쪽 레인만 남기고 나머지는 닫는다.
-    """
+def graph_rows(nodes):
     all_ids = {n.id for n in nodes}
     childmap = {}
     for n in nodes:
@@ -26,52 +23,75 @@ def lane_rows(nodes):
             if p in all_ids:
                 childmap.setdefault(p, []).append(n.id)
 
-    def free_slot():
-        return next((i for i, a in enumerate(lanes) if a is None), len(lanes))
-
-    lanes = []            # 기다리는 노드 id 또는 None
+    lanes = []  # 기다리는 노드 id 또는 None
     rows = []
-    for n in nodes:
-        awaiting = [i for i, a in enumerate(lanes) if a == n.id]
-        if awaiting:
-            col = awaiting[0]
-        else:
-            col = free_slot()
-            if col == len(lanes):
-                lanes.append(None)
 
+    def free_slot():
+        for i, a in enumerate(lanes):
+            if a is None:
+                return i
+        lanes.append(None)
+        return len(lanes) - 1
+
+    def snapshot(glyphs=None):
         cells = []
-        for i in range(len(lanes)):
-            if i == col:
-                cells.append('@')
-            elif lanes[i] is not None:
+        for i, owner in enumerate(lanes):
+            if glyphs and i in glyphs:
+                cells.append(glyphs[i])
+            elif owner is not None:
                 cells.append('│')
             else:
                 cells.append(' ')
-        rows.append((cells, col))
+        return cells
 
-        # merge: 이 노드를 기다리던 다른 레인은 닫는다
-        for i in awaiting:
-            if i != col:
+    for n in nodes:
+        awaiting = [i for i, a in enumerate(lanes) if a == n.id]
+        col = awaiting[0] if awaiting else free_slot()
+        merge = len(awaiting) > 1
+
+        if merge:
+            # │╱ 전환 행: 닫히는 레인들이 col 쪽으로 합쳐진다
+            glyphs = {i: '╱' for i in awaiting[1:]}
+            glyphs[col] = '│'
+            rows.append({'kind': 'merge', 'cells': snapshot(glyphs),
+                         'parents': [p for p in n.parent_ids if p in all_ids],
+                         'child': n.id})
+            for i in awaiting[1:]:
                 lanes[i] = None
-        # 자식 예약: 첫 자식은 col 재사용, 나머지는 새 레인(fork)
+
+        cells = []
+        for i, owner in enumerate(lanes):
+            cells.append('@' if i == col else ('│' if owner is not None else ' '))
+        rows.append({'kind': 'node', 'id': n.id, 'cells': cells,
+                     'col': col, 'merge': merge})
+
         kids = childmap.get(n.id, [])
         if kids:
             lanes[col] = kids[0]
+            opened = []
             for kid in kids[1:]:
                 slot = free_slot()
-                if slot == len(lanes):
-                    lanes.append(kid)
-                else:
-                    lanes[slot] = kid
+                lanes[slot] = kid
+                opened.append(slot)
+            if opened:
+                # │╲ 전환 행: 부모 레인은 이어지고 새 레인이 대각선으로 열린다
+                glyphs = {i: '╲' for i in opened}
+                glyphs[col] = '│'
+                rows.append({'kind': 'fork', 'cells': snapshot(glyphs),
+                             'parent': n.id})
         else:
             lanes[col] = None
 
     return rows
 
 
+def lane_rows(nodes):
+    """하위호환: 노드 행만 (cells, col)로 돌려준다."""
+    return [(r['cells'], r['col']) for r in graph_rows(nodes) if r['kind'] == 'node']
+
+
 def render_row(cells, col, symbol):
-    """cells/col + 상태 기호 → 한 줄 그래프 문자열. 각 레인은 '글리프 ' 2칸."""
+    """cells/col + 기호 → 한 줄 그래프 문자열. 각 레인은 '글리프 ' 2칸."""
     out = []
     for i, ch in enumerate(cells):
         out.append(symbol if i == col else (' ' if ch == '@' else ch))
