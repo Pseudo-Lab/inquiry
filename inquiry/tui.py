@@ -6,15 +6,16 @@ Textual 기반(ADR-D7 Gate B 항목4 선정).
   모델 연산은 취소 가능한 thread 워커로 돌리고(협조적 cancelled), 결과는
   사람이 accept/reject로 확정한다(ADR-D5 human-approval).
 """
+from rich import box
 from rich.cells import cell_len
+from rich.table import Table
 from rich.text import Text
 from textual import work
 from textual.worker import get_current_worker
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Vertical
-from textual.widgets import Footer, Header, Input, OptionList, Static
-from textual.widgets.option_list import Option
+from textual.containers import Vertical, VerticalScroll
+from textual.widgets import Footer, Header, Input, Static
 
 from .commands import Commands
 from .graphlog import lane_rows
@@ -91,19 +92,23 @@ def _detail_text(h, state):
     return "\n".join(lines)
 
 
+class GraphView(Static):
+    """포커스 가능한 git-log 지도 — Rich Table을 렌더하고 ↑/↓(k/j)로 선택 이동."""
+    can_focus = True
+    BINDINGS = [
+        Binding("up,k", "move(-1)", "위", show=False),
+        Binding("down,j", "move(1)", "아래", show=False),
+    ]
+
+    def action_move(self, delta: int):
+        self.app._move_selection(delta)
+
+
 class InquiryTUI(App):
     CSS = """
     Screen { background: $surface; }
-    #map {
-        height: 1fr;
-        border: round $primary;
-        border-title-color: $accent;
-        border-title-style: bold;
-        padding: 0 1;
-        background: $panel;
-    }
-    #map > .option-list--option-highlighted { background: $accent 35%; text-style: bold; }
-    #map:focus > .option-list--option-highlighted { background: $accent 55%; }
+    #mapwrap { height: 1fr; background: $panel; }
+    #map { padding: 0; background: $panel; }
     #details {
         height: auto; max-height: 42%;
         border: round $primary;
@@ -129,6 +134,7 @@ class InquiryTUI(App):
         self.pending = None            # 사람 승인 대기 중인 proposal
         self.pending_kind = None       # 'op' | 'branch'
         self.marked = set()            # synthesize 대상으로 표시한 가설 ID
+        self.sel = 0                   # 선택된 노드 인덱스
         self._op_worker = None
         self._spin_timer = None        # 연산 중 스피너 타이머
         self._spin_i = 0
@@ -142,7 +148,8 @@ class InquiryTUI(App):
     def compose(self) -> ComposeResult:
         yield Header()
         with Vertical():
-            yield OptionList(id="map")
+            with VerticalScroll(id="mapwrap"):
+                yield GraphView(id="map")
             yield Static("", id="details")
         yield Static(HELP, id="status")
         yield Input(placeholder="명령 (: 로 포커스)", id="cmd")
@@ -153,11 +160,9 @@ class InquiryTUI(App):
         self.title = "Inquiry"
         self.sub_title = frame.get("central_question") or (
             self.state.inquiry.seed if self.state.inquiry else "(빈 탐구)")
-        self.query_one("#map").border_title = "Branch log"
-        self.query_one("#map").border_subtitle = f"{len(self.nodes)} nodes"
         self.query_one("#details").border_title = "Details"
         self._rebuild_table(select=0)
-        self.query_one("#map", OptionList).focus()
+        self.query_one("#map", GraphView).focus()
 
     def _connector_info(self):
         """hid → ('fork'|'merge'|None, parents): 대각선 커넥터용."""
@@ -179,59 +184,68 @@ class InquiryTUI(App):
         return info
 
     def _rebuild_table(self, select=None):
-        opts = self.query_one("#map", OptionList)
-        keep = opts.highlighted if select is None else select
-        opts.clear_options()
+        if select is not None:
+            self.sel = select
+        gv = self.query_one("#map", GraphView)
+        if not self.nodes:
+            gv.update(Text("이 탐구에는 아직 가설이 없습니다. framing으로 프레임을 승인하세요.",
+                           style="grey62"))
+            self.query_one("#details", Static).update("아직 가설이 없습니다.")
+            return
+        self.sel = max(0, min(self.sel, len(self.nodes) - 1))
+        gv.update(self._build_table())
+        self._show(self.nodes[self.sel].id)
+
+    def _build_table(self):
+        t = Table(box=box.ROUNDED, expand=True, pad_edge=False, padding=(0, 1),
+                  border_style="grey42", header_style="bold bright_cyan",
+                  title="Branch log", title_justify="left", title_style="bold cyan",
+                  caption=f"{len(self.nodes)} nodes", caption_justify="right",
+                  caption_style="grey50")
+        t.add_column("GRAPH", no_wrap=True)
+        t.add_column("ID", no_wrap=True, style="grey74")
+        t.add_column("HYPOTHESIS", ratio=1)
+        t.add_column("STATUS", no_wrap=True)
         lanes = lane_rows(self.nodes)
         conn = self._connector_info()
         for idx, h in enumerate(self.nodes):
             cells, col = lanes[idx]
             kind, parents = conn[h.id]
-            opts.add_option(Option(self._node_text(h, cells, col, kind, parents), id=h.id))
-        if self.nodes:
-            row = min(keep or 0, len(self.nodes) - 1)
-            opts.highlighted = row
-            self._show(self.nodes[row].id)
-        else:
-            self.query_one("#details", Static).update(
-                "이 탐구에는 아직 가설이 없습니다. framing으로 프레임을 승인하세요.")
-
-    def _lane_prefix(self, cells, col, sym, style, marked, override=None):
-        """레인 글리프 한 줄. override로 col 위치에 커넥터 글리프(╲/╱)를 넣는다."""
-        t = Text()
-        t.append("•" if marked else " ", style="bold yellow" if marked else "")
-        for i, ch in enumerate(cells):
-            if i == col:
-                t.append(override or sym, style=style)
-            elif ch in ('@', ' '):
-                t.append(' ')
-            else:
-                t.append('│', style="grey42")
-            t.append(' ')
+            sym, label = STATUS.get(h.status, ('?', h.status))
+            style = STATUS_STYLE.get(h.status, 'white')
+            marked = h.id in self.marked
+            if kind == 'fork':
+                t.add_row(self._graph_cell(cells, col, '╲', "grey50", marked),
+                          "", Text("Fork", style="grey50"), "")
+            elif kind == 'merge':
+                t.add_row(self._graph_cell(cells, col, '╱', "grey50", marked),
+                          "", Text("Merge / " + " + ".join(parents), style="grey50"), "")
+            selected = (idx == self.sel)
+            t.add_row(self._graph_cell(cells, col, sym, style, marked),
+                      Text(h.id), Text(("▸ " if selected else "  ") + h.title),
+                      Text(f"{sym} {label}", style=style),
+                      style=("on grey30" if selected else None))
         return t
 
-    def _node_text(self, h, cells, col, kind, parents):
-        sym, label = STATUS.get(h.status, ('?', h.status))
-        style = STATUS_STYLE.get(h.status, 'white')
-        marked = h.id in self.marked
-        body = Text()
-        # 대각선 커넥터 라인(위→아래 계보): fork는 ╲, merge는 ╱ + 라벨
-        if kind == 'fork':
-            line = self._lane_prefix(cells, col, sym, "grey50", marked, override='╲')
-            line.append("Fork", style="grey50")
-            body.append_text(line)
-            body.append("\n")
-        elif kind == 'merge':
-            line = self._lane_prefix(cells, col, sym, "grey50", marked, override='╱')
-            line.append("Merge / " + " + ".join(parents), style="grey50")
-            body.append_text(line)
-            body.append("\n")
-        # 노드 라인: 레인+기호 · ID · 제목 · 상태
-        body.append_text(self._lane_prefix(cells, col, sym, style, marked))
-        body.append(_pad(h.id, 8) + " ", style="grey70")
-        body.append(_pad(h.title, 28) + " ")
-        body.append(f"{sym} {label}", style=style)
-        return body
+    def _graph_cell(self, cells, col, glyph, style, marked=False):
+        c = Text()
+        if marked:
+            c.append("•", style="bold yellow")
+        for i, ch in enumerate(cells):
+            if i == col:
+                c.append(glyph, style=style)
+            elif ch in ('@', ' '):
+                c.append(' ')
+            else:
+                c.append('│', style="grey42")
+            c.append(' ')
+        return c
+
+    def _move_selection(self, delta):
+        if not self.nodes:
+            return
+        self.sel = max(0, min(self.sel + delta, len(self.nodes) - 1))
+        self._rebuild_table()
 
     def _show(self, hid):
         h = self.state.hypotheses.get(hid)
@@ -263,15 +277,9 @@ class InquiryTUI(App):
 
     @property
     def _current_hid(self):
-        opts = self.query_one("#map", OptionList)
-        row = opts.highlighted
-        if self.nodes and row is not None and 0 <= row < len(self.nodes):
-            return self.nodes[row].id
+        if self.nodes and 0 <= self.sel < len(self.nodes):
+            return self.nodes[self.sel].id
         return None
-
-    def on_option_list_option_highlighted(self, event: OptionList.OptionHighlighted):
-        if event.option is not None and event.option.id is not None:
-            self._show(event.option.id)
 
     # --- commands ---
     def action_focus_cmd(self):
@@ -282,12 +290,12 @@ class InquiryTUI(App):
             self._op_worker.cancel()
             self._set_status("연산 취소 요청됨…")
         else:
-            self.query_one("#map", OptionList).focus()
+            self.query_one("#map", GraphView).focus()
 
     def on_input_submitted(self, event: Input.Submitted):
         text = event.value.strip()
         event.input.value = ""
-        self.query_one("#map", OptionList).focus()
+        self.query_one("#map", GraphView).focus()
         if text:
             self._dispatch(text)
 
@@ -331,8 +339,8 @@ class InquiryTUI(App):
         if match is None:
             self._set_status(f"'{query}' 노드를 찾을 수 없습니다.")
             return
-        self.query_one("#map", OptionList).highlighted = match
-        self._show(self.nodes[match].id)
+        self.sel = match
+        self._rebuild_table()
         self._set_status(f"{self.nodes[match].id} (행 {match + 1}/{len(self.nodes)})")
 
     def _transition(self, action):
