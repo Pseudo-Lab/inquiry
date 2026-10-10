@@ -37,7 +37,7 @@ M0 결정  ─▶  M1a Framing ─┐
 | D5 | 가설 상태 머신 | 허용 전이 표 + 불변식 확정 | REVIEW 부록 B |
 | D6 | 비용 모델 | inquiry별 spend cap·예산 UI 기본 정책 | REVIEW 3-비용 |
 
-각 결정의 초안 ADR: [`docs/decisions/`](./decisions/) (D1~D6, 현재 *Proposed* 상태).
+각 결정의 정본 ADR: [`docs/decisions/`](./decisions/) (D1~D6 모두 *Accepted*. 축별 calibration 등 후속 항목은 각 ADR 참조).
 
 **Exit 기준:** D1~D6 ADR이 *Accepted*로 확정되고, 서로 모순 없음(특히 D1↔§4.7 문구 정합).
 
@@ -78,7 +78,11 @@ M0 결정  ─▶  M1a Framing ─┐
 
 > 예상 소요: **~3~4주**
 
-- **전제:** M0 확정 + M1a·M1b 통과. D1(이벤트 로그)·D5(상태 머신)가 여기서 처음 코드화.
+> 상태: **M2-4B Deepen·Challenge·Synthesize와 Task 5 경계 검증 완료**. 전체277개 테스트, fake chat/CLI 여정, 독립 코드 리뷰 APPROVE를 확인했다. 실제 모델 품질 평가는 남아 있으며, Gate B/TUI는 아직 시작하지 않는다. [최신 검증](reports/m2-4b-operations-eval.md) · [계획](superpowers/plans/2026-09-21-m2-4b-remaining-operations.md). [ADR-D7](decisions/ADR-D7-staged-m2-gates.md)에 따라 Gate B 해소 후 TUI를 통합한다.
+
+2026-09-21 이전 인수 기록: **M2-4B-2 Deepen 구현과 CLI/chat 연결 완료**, 당시 전체251개 자동 테스트·SDK 없는28개·합성 PTY 검증과 최종 리뷰 APPROVE. [Deepen 결과](reports/m2-4b2-deepen-eval.md). 최신 Challenge 상태는 위 상태 요약을 따른다.
+
+- **전제:** M0 확정 및 Gate A 확인 후 저장·복원 코어 착수. M1a·M1b 잔여 UX와 TUI 선정은 병행하며 Gate B 확인 전에는 M2-6 TUI 통합을 시작하지 않는다(2026-09-17 사용자 결정, D7). D1(이벤트 로그)·D5(상태 머신)가 여기서 처음 코드화.
 - **범위:** `fork`·`deepen`·`challenge`·`synthesize`·`close` 5연산 + 상태 전이 + 노드 상세 + 체크박스 Actions + Weekly preview + Markdown export. 단일 사용자·로컬.
 - **노드 상세 범위:** MVP 탐구 흐름에 필요한 기본 정보 조회까지만 포함한다. 지도에서 마우스 클릭·키보드로 노드를 선택해 상세를 탐색하는 UX와 브랜치 전체 요약은 아래 **MVP 이후 상세 탐색 계획**에서 다시 구체화한다.
 - **Exit 기준:** 원문 §18 시나리오 1~10을 처음부터 끝까지 완주.

@@ -5,7 +5,9 @@
 >
 > A shared workspace for branching thoughts, testing hypotheses, and preserving why ideas lived or died.
 
-**문서 상태: Concept / Pre-development** — 아직 코드는 없으며, 제품 방향과 핵심 경험을 기준 문서로 확정하는 단계입니다.
+**개발 상태: Prototype / M2 core** — 프레이밍·Git-log 화면 프로토타입과 [이벤트 저장·가설·근거 코어](inquiry/README.md)가 구현된 상태입니다. 전체 제품 기능은 아직 완성되지 않았습니다.
+
+처음 사용하는 사람은 [사용자 안내서](docs/USER-GUIDE.md)에서 가설 상태와 Deepen·Challenge·Synthesize 흐름을 먼저 확인할 수 있습니다.
 
 ## 왜 필요한가
 
