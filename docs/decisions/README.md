@@ -17,5 +17,6 @@ Inquiry의 결정 기록. D1~D6는 [`../MILESTONES.md`](../MILESTONES.md) M0의 
 | D8 | 서버 운영 없는 로컬 오픈소스·BYOK 배포 | [ADR-D8-local-byok-distribution.md](./ADR-D8-local-byok-distribution.md) | **Accepted** |
 | D9 | 대화형 Framing 후 승인 시 Git-log 전환 | [ADR-D9-conversation-before-map.md](./ADR-D9-conversation-before-map.md) | **Accepted** |
 | D10 | 다중 에이전트 actor (역할 에이전트) | [ADR-D10-multi-actor.md](./ADR-D10-multi-actor.md) | **Accepted** |
+| D11 | 사고 포화·중복 감지 (휴리스틱 v0) | [ADR-D11-saturation-dedup.md](./ADR-D11-saturation-dedup.md) | **Accepted** |
 
 새 ADR은 [`_TEMPLATE.md`](./_TEMPLATE.md) 를 복사해 작성한다.
