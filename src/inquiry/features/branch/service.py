@@ -8,6 +8,7 @@ from inquiry.llm.adapter import RunRequest, _number
 from inquiry.features.branch.schema import BRANCH_PARENT_STATES, BRANCH_SCHEMA, parent_snapshot, validate_branch
 from inquiry.commands import _hypothesis, _next_id
 from inquiry.features.agents.profiles import resolve, actor_for, with_persona
+from inquiry.saturation import near_duplicate_candidates
 from inquiry.domain.replay import replay
 from inquiry.llm.runs import Runner
 from inquiry.store.store import Store
@@ -50,6 +51,8 @@ class BranchService:
             or parent_snapshot(parent) != proposal['parent_snapshot'])
         run = state.runs.get(proposal.get('run_id'))
         result['agent'] = run.actor if run is not None else None
+        result['near_duplicates'] = near_duplicate_candidates(
+            state, proposal.get('candidates', []), proposal['parent_id'])
         return result
 
     def view(self, proposal_id):

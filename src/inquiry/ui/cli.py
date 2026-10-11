@@ -210,6 +210,9 @@ def main(argv=None, *, adapter=None):
     action.add_parser('check').add_argument('action_id')
     action.add_parser('uncheck').add_argument('action_id')
     subs.add_parser('actions', help='List actions grouped by hypothesis')
+    saturation = subs.add_parser('saturation', help='Saturation signal & near-duplicate hypotheses (§8)')
+    saturation.add_argument('--window', type=_positive_int, default=3)
+    saturation.add_argument('--threshold', type=_positive_float, default=0.5)
     weekly = subs.add_parser('weekly', help='Seven-day view of how the inquiry changed')
     weekly.add_argument('--days', type=_positive_int, default=7)
     write = subs.add_parser('write', help='Markdown export regenerated from the event log')
@@ -436,6 +439,14 @@ def main(argv=None, *, adapter=None):
                 for action in sorted(state.actions.values(), key=lambda item: item.id):
                     if action.hypothesis_id == node_id:
                         print(f"  [{'x' if action.done else ' '}] {action.id} {action.title}")
+            return
+        elif args.command == 'saturation':
+            from inquiry.domain.replay import replay
+            from inquiry.store.store import Store
+            from inquiry.saturation import build_report
+            events = Store(args.dir).read_all()
+            report = build_report(events, replay(events), window=args.window, threshold=args.threshold)
+            print(json.dumps(report, ensure_ascii=False, indent=2))
             return
         elif args.command in ('weekly', 'write'):
             from inquiry.domain.replay import replay
