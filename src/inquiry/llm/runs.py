@@ -74,11 +74,12 @@ class Runner:
                 raise ValueError('Only draft cancellation may accompany RunCancelled.')
         change = dict(kind=kind, run_id=request.run_id, usage=usage or current.usage,
                       provider_request_id=provider_request_id or current.provider_request_id)
+        finish_actor = current.actor  # terminal events share the run's starting actor
         if kind == 'RunSucceeded':
             change['proposal'] = proposal
         else:
             change.update(reason=reason, provider_outcome=outcome)
-        return self._record(store, request.inquiry_id, change, extra_changes=extra_changes)
+        return self._record(store, request.inquiry_id, change, finish_actor, extra_changes=extra_changes)
 
     @staticmethod
     def _signal_metadata(current, signal):
@@ -93,7 +94,7 @@ class Runner:
         return usage, provider
 
     def execute(self, request, adapter, *, cancelled=None, preflight=None, success_changes=None,
-                cancellation_changes=None):
+                cancellation_changes=None, actor='agent:runner'):
         """Run once and return only persisted outcomes.
 
         Cancellation/timeout are checked between signals. Adapter I/O must itself
@@ -130,7 +131,7 @@ class Runner:
             started.pop('inquiry_id')
             started['target_ids'] = list(request.target_ids)
             started['kind'] = 'RunStarted'
-            self._record(store, request.inquiry_id, started)
+            self._record(store, request.inquiry_id, started, actor)
             if cancelled():
                 return self._finish(store, request, 'RunCancelled', reason='cancelled-before-dispatch',
                                     outcome='not-started', usage=not_started_usage(),
@@ -142,7 +143,7 @@ class Runner:
                 if self.clock() >= deadline:
                     return 'timeout'
                 return None
-            self._record(store, request.inquiry_id, dict(kind='RunDispatched', run_id=request.run_id))
+            self._record(store, request.inquiry_id, dict(kind='RunDispatched', run_id=request.run_id), actor)
             try:
                 stream = iter(adapter.run(request))
             except Exception as error:

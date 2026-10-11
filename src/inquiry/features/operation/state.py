@@ -4,6 +4,7 @@ from copy import deepcopy
 
 from inquiry.features.branch.schema import parent_snapshot
 from inquiry.features.operation.schema import eligible_targets, validate_operation
+from inquiry.domain.transitions import is_agent_actor
 
 
 KINDS = frozenset({'OperationProposed', 'OperationRejected', 'OperationAccepted',
@@ -56,7 +57,7 @@ def validate_batch(event, proposals, notes, runs, hypotheses):
                      'Refinement requires its acceptance atomically.')
             continue
         if kind == 'OperationProposed':
-            _require(event['actor'] == 'agent:runner', 'Invalid operation output producer.')
+            _require(is_agent_actor(event['actor']), 'Invalid operation output producer.')
             _require(sorted(c['kind'] for c in changes) == ['OperationProposed', 'RunSucceeded'],
                      'Invalid operation proposal batch.')
             _require(change['proposal_id'] not in proposals, 'Duplicate operation proposal identity.')

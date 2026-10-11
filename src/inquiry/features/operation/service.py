@@ -10,6 +10,7 @@ from inquiry.features.branch.schema import parent_snapshot
 from inquiry.commands import _hypothesis, _next_id, _transition
 from inquiry.features.operation.prompts import OPERATION_PROMPTS
 from inquiry.features.operation.schema import OPERATION_SCHEMAS, eligible_targets, validate_operation
+from inquiry.features.agents.profiles import resolve, actor_for, with_persona
 from inquiry.domain.replay import replay
 from inquiry.llm.runs import Runner
 from inquiry.store.store import Store
@@ -35,6 +36,8 @@ class OperationsService:
         except ValueError:
             stale = True
         result['stale'] = proposal['status'] == 'pending' and stale
+        run = state.runs.get(proposal.get('run_id'))
+        result['agent'] = run.actor if run is not None else None
         return result
 
     def view(self, proposal_id):
@@ -68,9 +71,10 @@ class OperationsService:
             return result
 
     def propose(self, operation, target_ids, adapter=None, *, adapter_factory=None, model='fake',
-                max_output_tokens=4000, timeout=60.0, cancelled=None):
+                max_output_tokens=4000, timeout=60.0, cancelled=None, agent='runner'):
         if operation not in OPERATION_SCHEMAS:
             raise ValueError('Unsupported operation.')
+        profile = resolve(agent)
         if adapter is not None and adapter_factory is not None:
             raise ValueError('Provide either adapter or adapter_factory, not both.')
         if not isinstance(target_ids, (list, tuple)):
@@ -102,10 +106,12 @@ class OperationsService:
             adapter, model = binding
         if adapter is None:
             raise ValueError('No operation adapter configured.')
+        if profile.model:
+            model = profile.model
         request = RunRequest(inquiry_id=state.inquiry_id, run_id='R-' + uuid4().hex,
             operation='hypothesis.' + operation, model=model, target_ids=targets,
             max_output_tokens=max_output_tokens, timeout=timeout,
-            context=dict(system=OPERATION_PROMPTS[operation], output_schema=OPERATION_SCHEMAS[operation],
+            context=dict(system=with_persona(profile, OPERATION_PROMPTS[operation]), output_schema=OPERATION_SCHEMAS[operation],
                          inquiry_frame=deepcopy(state.inquiry.frame),
                          parents=[deepcopy(snapshot[identity]) for identity in targets]))
 
@@ -135,7 +141,8 @@ class OperationsService:
                          target_ids=list(targets), target_snapshot=snapshot, output=validated)]
 
         run = Runner(self.root).execute(request, adapter, cancelled=cancelled,
-                                        preflight=preflight, success_changes=success)
+                                        preflight=preflight, success_changes=success,
+                                        actor=actor_for(agent))
         if run.status != 'succeeded':
             raise ValueError(f'Operation run {run.id} {run.status}: {run.reason}. '
                              'Inspect saved state before another explicit generation.')
