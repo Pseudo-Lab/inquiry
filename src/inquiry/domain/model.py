@@ -132,3 +132,4 @@ class State:
     branch_proposals: dict = field(default_factory=dict)
     operation_proposals: dict = field(default_factory=dict)
     review_notes: dict = field(default_factory=dict)
+    spend_cap: Optional[int] = None

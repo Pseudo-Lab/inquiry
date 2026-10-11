@@ -81,6 +81,15 @@ class Commands:
             return [_hypothesis(node_id, title, claim, parents, assumptions, falsified_if)], node_id
         return self._commit(build)
 
+    def set_cap(self, max_tokens, reason=''):
+        """Set or raise the inquiry's token spend cap (ADR-D6). Requires an inquiry."""
+        if type(max_tokens) is not int or max_tokens <= 0:
+            raise ValueError('max_tokens must be a positive integer.')
+        if not isinstance(reason, str):
+            raise ValueError('reason must be a string.')
+        return self._commit(lambda state, at, identity:
+                            ([dict(kind='SpendCapSet', max_tokens=max_tokens, reason=reason)], max_tokens))
+
     def add_action(self, target, title):
         def build(state, at, identity):
             action_id = _next_id('A', state.actions)

@@ -40,6 +40,7 @@ CHANGE_FIELDS = {
                                        'evidence_ids', 'evidence_snapshot', 'reopen_if', 'synthesis_target'}),
     'HypothesisAssessed': frozenset({'kind', 'hypothesis_id', 'run_id', 'assessment'}),
     'ConfidenceUpdated': frozenset({'kind', 'hypothesis_id', 'run_id', 'axis', 'score'}),
+    'SpendCapSet': frozenset({'kind', 'max_tokens', 'reason'}),
     'ActionCreated': frozenset({'kind', 'action_id', 'hypothesis_id', 'title'}),
     'ActionChecked': frozenset({'kind', 'action_id'}),
     'ActionUnchecked': frozenset({'kind', 'action_id'}),
@@ -279,6 +280,11 @@ def validate_event(event):
                 if not isinstance(snapshot, dict) or set(snapshot) != {'items', 'note'} or not isinstance(snapshot['items'], list):
                     raise EventValidationError('Invalid evidence snapshot.')
                 _text(snapshot['note'], 'snapshot note')
+        elif kind == 'SpendCapSet':
+            if type(change['max_tokens']) is not int or change['max_tokens'] <= 0:
+                raise EventValidationError('max_tokens must be a positive integer.')
+            if not isinstance(change['reason'], str):
+                raise EventValidationError('reason must be a string.')
         elif kind in ('HypothesisAssessed', 'ConfidenceUpdated'):
             for key in ('hypothesis_id', 'run_id'):
                 _text(change[key], key)
