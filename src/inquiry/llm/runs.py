@@ -157,7 +157,8 @@ class Runner:
                             extras = [] if success_changes is None else success_changes(
                                 replay(store.read_all()), request, signal.proposal)
                             allowed = {'FramingControlRecorded', 'QuestionsIssued', 'FrameProposed',
-                                       'BranchProposed', 'OperationProposed'}
+                                       'BranchProposed', 'OperationProposed',
+                                       'HypothesisAssessed', 'ConfidenceUpdated'}
                             if not isinstance(extras, list) or any(
                                 not isinstance(change, dict) or change.get('kind') not in allowed
                                 for change in extras

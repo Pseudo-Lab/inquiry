@@ -3,7 +3,8 @@ from dataclasses import asdict, replace
 
 from inquiry.domain.events import EventValidationError, validate_event
 from inquiry.domain.graph import validate_graph
-from inquiry.domain.model import FramingSession, Inquiry, State, Hypothesis, Action, Evidence, EvidenceLink, Run
+from inquiry.domain.model import (FramingSession, Inquiry, State, Hypothesis, Action, Evidence,
+                                  EvidenceLink, Run, AxisScore, Assessment)
 from inquiry.domain.transitions import validate_transition
 from inquiry.features.framing.state import KINDS as FRAMING_KINDS, apply_change as apply_framing, validate_batch as validate_framing_batch
 from inquiry.features.branch.schema import parent_snapshot
@@ -80,6 +81,23 @@ def _apply_run(change, event, runs, sessions, hypotheses):
         updates.update(status='failed' if kind == 'RunFailed' else 'cancelled', reason=change['reason'],
                        provider_outcome=change['provider_outcome'])
     runs[identity] = replace(run, **updates)
+
+
+def _axis_score(payload, at):
+    """Build an AxisScore, stamping updated_at from the event (not the payload)."""
+    return AxisScore(low=payload['low'], high=payload['high'], source=payload['source'],
+                     evidence_refs=tuple(payload['evidence_refs']), unverified=payload['unverified'],
+                     rationale=payload['rationale'], updated_at=at)
+
+
+def _check_refs(payload, hypothesis_id, evidence, links):
+    """Cited evidence must exist and already be linked to this hypothesis (G4)."""
+    linked = {link.evidence_id for link in links if link.hypothesis_id == hypothesis_id}
+    for ref in payload['evidence_refs']:
+        if ref not in evidence:
+            raise ValueError('Assessment cites missing evidence.')
+        if ref not in linked:
+            raise ValueError('Assessment evidence must be linked to the hypothesis first.')
 
 
 def _apply_domain(change, event, hypotheses, actions, evidence, links, created, merges):
@@ -170,6 +188,26 @@ def _apply_domain(change, event, hypotheses, actions, evidence, links, created, 
             reopen_if=change['reopen_if'] if target in ('refuted', 'human-closed') else node.reopen_if,
             synthesis_target=change['synthesis_target'] or node.synthesis_target,
             history=node.history + (change,))
+    elif kind == 'HypothesisAssessed':
+        node = hypotheses.get(change['hypothesis_id'])
+        if node is None:
+            raise ValueError('Assessment references a missing hypothesis.')
+        axes = {}
+        for name, payload in change['assessment'].items():
+            if payload is None:
+                axes[name] = None
+            else:
+                _check_refs(payload, node.id, evidence, links)
+                axes[name] = _axis_score(payload, event['at'])
+        hypotheses[node.id] = replace(node, assessment=Assessment(**axes))
+    elif kind == 'ConfidenceUpdated':
+        node = hypotheses.get(change['hypothesis_id'])
+        if node is None:
+            raise ValueError('Confidence update references a missing hypothesis.')
+        _check_refs(change['score'], node.id, evidence, links)
+        current = node.assessment or Assessment()
+        updated = replace(current, **{change['axis']: _axis_score(change['score'], event['at'])})
+        hypotheses[node.id] = replace(node, assessment=updated)
 
 
 def replay(events):

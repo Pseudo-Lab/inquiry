@@ -26,6 +26,33 @@ class Inquiry:
 
 
 @dataclass(frozen=True)
+class AxisScore:
+    """One ADR-D3 axis: a range (not a point) with its provenance.
+
+    `low`/`high` carry inter-rung uncertainty; `source` follows the trust
+    hierarchy agent-estimate < human-judgment < measured-result. `unverified`
+    flags an upward move lacking fresh external evidence (principle 4, advisory).
+    """
+    low: float
+    high: float
+    source: str
+    evidence_refs: tuple = ()
+    unverified: bool = False
+    rationale: str = ''
+    updated_at: str = ''
+
+
+@dataclass(frozen=True)
+class Assessment:
+    """The five non-additive D3 axes. Unscored axes stay None (explicit null)."""
+    plausibility: Optional[AxisScore] = None
+    evidence_strength: Optional[AxisScore] = None
+    novelty: Optional[AxisScore] = None
+    impact: Optional[AxisScore] = None
+    testability: Optional[AxisScore] = None
+
+
+@dataclass(frozen=True)
 class Hypothesis:
     id: str
     title: str
@@ -39,6 +66,7 @@ class Hypothesis:
     reopen_if: Optional[str] = None
     synthesis_target: Optional[str] = None
     history: tuple = ()
+    assessment: Optional[Assessment] = None
 
 
 @dataclass(frozen=True)
