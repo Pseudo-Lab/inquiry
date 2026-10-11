@@ -26,6 +26,14 @@ def _nonempty_string(value):
     return isinstance(value, str) and bool(value.strip())
 
 
+def is_agent_actor(actor):
+    """True for a valid named agent actor ``agent:<name>`` (M3 multi-actor)."""
+    if not isinstance(actor, str):
+        return False
+    role, separator, name = actor.partition(':')
+    return role == 'agent' and bool(separator) and bool(name.strip())
+
+
 def validate_transition(from_state, to_state, actor, *, reason='',
                         evidence_snapshot=None, reopen_if=None,
                         synthesis_target=None) -> None:

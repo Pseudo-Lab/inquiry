@@ -5,7 +5,7 @@ from inquiry.domain.events import EventValidationError, validate_event
 from inquiry.domain.graph import validate_graph
 from inquiry.domain.model import (FramingSession, Inquiry, State, Hypothesis, Action, Evidence,
                                   EvidenceLink, Run, AxisScore, Assessment)
-from inquiry.domain.transitions import validate_transition
+from inquiry.domain.transitions import validate_transition, is_agent_actor
 from inquiry.features.framing.state import KINDS as FRAMING_KINDS, apply_change as apply_framing, validate_batch as validate_framing_batch
 from inquiry.features.branch.schema import parent_snapshot
 from inquiry.features.branch.state import KINDS as BRANCH_KINDS, apply_change as apply_branch, validate_batch as validate_branch_batch
@@ -21,7 +21,7 @@ class ReplayError(ValueError):
 def _apply_run(change, event, runs, sessions, hypotheses):
     kind, identity = change['kind'], change['run_id']
     recovery = kind == 'RunFailed' and event['actor'] == 'system:recovery' and change['reason'] == 'process-interrupted'
-    if event['actor'] != 'agent:runner' and not recovery:
+    if not recovery and not is_agent_actor(event['actor']):
         raise ValueError('Invalid run event producer.')
     if kind == 'RunStarted':
         if identity in runs or any(run.status == 'started' for run in runs.values()):
@@ -37,11 +37,13 @@ def _apply_run(change, event, runs, sessions, hypotheses):
             snapshot = {target: parent_snapshot(hypotheses[target]) for target in sorted(change['target_ids'])}
         runs[identity] = Run(identity, change['operation'], change['model'], tuple(change['target_ids']),
                              change['session_id'], change['max_output_tokens'], change['timeout'],
-                             target_snapshot=snapshot)
+                             target_snapshot=snapshot, actor=event['actor'])
         return
     run = runs.get(identity)
     if run is None:
         raise ValueError('Run does not exist.')
+    if not recovery and event['actor'] != run.actor:
+        raise ValueError('Run events must share the starting actor.')
     if kind != 'RunUsageReported' and run.status != 'started':
         raise ValueError('Run already has a terminal outcome.')
     if kind == 'RunDispatched':

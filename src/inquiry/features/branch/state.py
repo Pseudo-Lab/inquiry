@@ -2,6 +2,7 @@
 from copy import deepcopy
 
 from inquiry.features.branch.schema import BRANCH_PARENT_STATES, parent_snapshot, validate_branch
+from inquiry.domain.transitions import is_agent_actor
 
 
 KINDS = frozenset({'BranchProposed', 'BranchRejected', 'BranchAccepted'})
@@ -43,7 +44,7 @@ def validate_batch(event, proposals, runs, hypotheses):
     for change in lifecycle:
         kind = change['kind']
         if kind == 'BranchProposed':
-            _require(event['actor'] == 'agent:runner', 'Invalid branch output producer.')
+            _require(is_agent_actor(event['actor']), 'Invalid branch output producer.')
             _require(sorted(c['kind'] for c in changes) == ['BranchProposed', 'RunSucceeded'],
                      'Invalid branch proposal batch.')
             _require(change['proposal_id'] not in proposals, 'Duplicate branch proposal identity.')

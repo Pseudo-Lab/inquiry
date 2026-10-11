@@ -7,6 +7,7 @@ from uuid import uuid4
 from inquiry.llm.adapter import RunRequest, _number
 from inquiry.features.branch.schema import BRANCH_PARENT_STATES, BRANCH_SCHEMA, parent_snapshot, validate_branch
 from inquiry.commands import _hypothesis, _next_id
+from inquiry.features.agents.profiles import resolve, actor_for, with_persona
 from inquiry.domain.replay import replay
 from inquiry.llm.runs import Runner
 from inquiry.store.store import Store
@@ -47,6 +48,8 @@ class BranchService:
         result['stale'] = proposal['status'] == 'pending' and (
             parent is None or parent.status not in BRANCH_PARENT_STATES
             or parent_snapshot(parent) != proposal['parent_snapshot'])
+        run = state.runs.get(proposal.get('run_id'))
+        result['agent'] = run.actor if run is not None else None
         return result
 
     def view(self, proposal_id):
@@ -65,9 +68,10 @@ class BranchService:
             return result
 
     def propose(self, parent_id, adapter=None, *, adapter_factory=None, model='fake',
-                max_output_tokens=4000, timeout=60.0, cancelled=None):
+                max_output_tokens=4000, timeout=60.0, cancelled=None, agent='runner'):
         if adapter is not None and adapter_factory is not None:
             raise ValueError('Provide either adapter or adapter_factory, not both.')
+        profile = resolve(agent)
         if type(max_output_tokens) is not int or max_output_tokens <= 0:
             raise ValueError('Expected positive integer max_output_tokens.')
         if not _number(timeout) or timeout <= 0:
@@ -89,10 +93,12 @@ class BranchService:
             adapter, model = binding
         if adapter is None:
             raise ValueError('No branch adapter configured.')
+        if profile.model:
+            model = profile.model
         request = RunRequest(inquiry_id=state.inquiry_id, run_id='R-' + uuid4().hex,
             operation='hypothesis.fork', model=model, target_ids=(parent_id,),
             max_output_tokens=max_output_tokens, timeout=timeout,
-            context=dict(system=FORK_SYSTEM, output_schema=BRANCH_SCHEMA,
+            context=dict(system=with_persona(profile, FORK_SYSTEM), output_schema=BRANCH_SCHEMA,
                          inquiry_frame=state.inquiry.frame, parent=snapshot))
 
         def preflight(current):
@@ -112,7 +118,8 @@ class BranchService:
                          parent_snapshot=snapshot, candidates=validated['candidates'])]
 
         run = Runner(self.root).execute(request, adapter, cancelled=cancelled,
-                                        preflight=preflight, success_changes=success)
+                                        preflight=preflight, success_changes=success,
+                                        actor=actor_for(agent))
         if run.status != 'succeeded':
             raise ValueError(f'Branch run {run.id} {run.status}: {run.reason}. '
                              'Inspect saved state before another explicit generation.')

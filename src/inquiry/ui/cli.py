@@ -122,6 +122,11 @@ def _generation_options(parser):
     parser.add_argument('--timeout', type=_positive_float, default=60.0)
 
 
+def _agent_option(parser):
+    parser.add_argument('--agent', default='runner',
+                        help='Role agent to run as (e.g. explorer, skeptic, researcher). Default: runner')
+
+
 def _relation(parser):
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument('--supports', action='store_true')
@@ -143,6 +148,7 @@ def main(argv=None, *, adapter=None):
     propose = branch_subs.add_parser('propose')
     propose.add_argument('parent_id')
     _generation_options(propose)
+    _agent_option(propose)
     branch_subs.add_parser('show').add_argument('proposal_id')
     accept = branch_subs.add_parser('accept')
     accept.add_argument('proposal_id')
@@ -157,6 +163,7 @@ def main(argv=None, *, adapter=None):
     propose.add_argument('kind', choices=('deepen', 'challenge', 'synthesize'))
     propose.add_argument('target_ids', nargs='+')
     _generation_options(propose)
+    _agent_option(propose)
     explore_subs.add_parser('show').add_argument('proposal_id')
     explore_subs.add_parser('accept').add_argument('proposal_id')
     reject = explore_subs.add_parser('reject')
@@ -169,9 +176,11 @@ def main(argv=None, *, adapter=None):
     score = assess_subs.add_parser('score', help='Initial four-axis scoring at suggested')
     score.add_argument('hypothesis_id')
     _generation_options(score)
+    _agent_option(score)
     reassess = assess_subs.add_parser('reassess', help='Re-score evidence_strength from linked evidence')
     reassess.add_argument('hypothesis_id')
     _generation_options(reassess)
+    _agent_option(reassess)
     assess_subs.add_parser('show', help='Show current assessment ranges and provenance').add_argument('hypothesis_id')
     assess_subs.add_parser('resume')
     budget = subs.add_parser('budget', help='Token spend cap for this inquiry (ADR-D6)')
@@ -265,7 +274,8 @@ def main(argv=None, *, adapter=None):
                            _openai_factory(args.dir, args.model, args.max_output_tokens, args.timeout,
                                            purpose='branch'))
                 result = service.propose(args.parent_id, adapter_factory=factory,
-                                         max_output_tokens=args.max_output_tokens or 4000, timeout=args.timeout)
+                                         max_output_tokens=args.max_output_tokens or 4000, timeout=args.timeout,
+                                         agent=args.agent)
             elif args.operation == 'show':
                 result = service.view(args.proposal_id)
             elif args.operation == 'accept':
@@ -288,7 +298,7 @@ def main(argv=None, *, adapter=None):
                                            purpose=args.kind))
                 result = service.propose(args.kind, args.target_ids, adapter_factory=factory,
                                          max_output_tokens=args.max_output_tokens or 4000,
-                                         timeout=args.timeout)
+                                         timeout=args.timeout, agent=args.agent)
             elif args.operation == 'show':
                 result = service.view(args.proposal_id)
             elif args.operation == 'accept':
@@ -313,7 +323,8 @@ def main(argv=None, *, adapter=None):
                                            purpose='assess'))
                 method = service.assess if args.operation == 'score' else service.update_confidence
                 assessment = method(args.hypothesis_id, adapter_factory=factory,
-                                    max_output_tokens=args.max_output_tokens or 4000, timeout=args.timeout)
+                                    max_output_tokens=args.max_output_tokens or 4000, timeout=args.timeout,
+                                    agent=args.agent)
             elif args.operation == 'show':
                 assessment = service.assessment(args.hypothesis_id)
             else:

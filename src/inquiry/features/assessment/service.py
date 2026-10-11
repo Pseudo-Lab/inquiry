@@ -15,6 +15,7 @@ from inquiry.features.branch.schema import parent_snapshot
 from inquiry.features.assessment.prompts import (
     ASSESS_SYSTEM, REASSESS_SYSTEM, INITIAL_OUTPUT_SCHEMA, SINGLE_AXIS_OUTPUT_SCHEMA)
 from inquiry.features.assessment.schema import validate_axis, validate_initial_output
+from inquiry.features.agents.profiles import resolve, actor_for, with_persona
 from inquiry.domain.replay import replay
 from inquiry.llm.runs import Runner
 from inquiry.store.store import Store
@@ -46,8 +47,9 @@ class AssessmentService:
 
     def _score(self, hypothesis_id, operation, system, output_schema, build_changes,
                adapter, adapter_factory, model, max_output_tokens, timeout, cancelled,
-               include_evidence=False):
+               include_evidence=False, agent='runner'):
         _string(hypothesis_id)
+        profile = resolve(agent)
         if adapter is not None and adapter_factory is not None:
             raise ValueError('Provide either adapter or adapter_factory, not both.')
         if type(max_output_tokens) is not int or max_output_tokens <= 0:
@@ -69,7 +71,9 @@ class AssessmentService:
             adapter, model = binding
         if adapter is None:
             raise ValueError('No assessment adapter configured.')
-        context = dict(system=system, output_schema=output_schema,
+        if profile.model:
+            model = profile.model
+        context = dict(system=with_persona(profile, system), output_schema=output_schema,
                        inquiry_frame=deepcopy(state.inquiry.frame),
                        hypothesis=parent_snapshot(node))
         if include_evidence:
@@ -87,14 +91,15 @@ class AssessmentService:
             return build_changes(actual_request.run_id, output)
 
         run = Runner(self.root).execute(request, adapter, cancelled=cancelled,
-                                        preflight=preflight, success_changes=success)
+                                        preflight=preflight, success_changes=success,
+                                        actor=actor_for(agent))
         if run.status != 'succeeded':
             raise ValueError(f'Assessment run {run.id} {run.status}: {run.reason}. '
                              'Inspect saved state before another explicit generation.')
         return self.assessment(hypothesis_id)
 
     def assess(self, hypothesis_id, adapter=None, *, adapter_factory=None, model='fake',
-               max_output_tokens=4000, timeout=60.0, cancelled=None):
+               max_output_tokens=4000, timeout=60.0, cancelled=None, agent='runner'):
         """Initial four-axis agent-estimate at `suggested` (evidence_strength stays null)."""
         def build(run_id, output):
             snapshot = validate_initial_output(output)
@@ -102,10 +107,10 @@ class AssessmentService:
                          run_id=run_id, assessment=snapshot)]
         return self._score(hypothesis_id, 'hypothesis.assess', ASSESS_SYSTEM,
                            INITIAL_OUTPUT_SCHEMA, build, adapter, adapter_factory, model,
-                           max_output_tokens, timeout, cancelled)
+                           max_output_tokens, timeout, cancelled, agent=agent)
 
     def update_confidence(self, hypothesis_id, adapter=None, *, adapter_factory=None, model='fake',
-                          max_output_tokens=4000, timeout=60.0, cancelled=None):
+                          max_output_tokens=4000, timeout=60.0, cancelled=None, agent='runner'):
         """Re-score evidence_strength from linked evidence during exploring."""
         def build(run_id, output):
             score = validate_axis(output)
@@ -115,4 +120,4 @@ class AssessmentService:
                          run_id=run_id, axis='evidence_strength', score=score)]
         return self._score(hypothesis_id, 'hypothesis.reassess', REASSESS_SYSTEM,
                            SINGLE_AXIS_OUTPUT_SCHEMA, build, adapter, adapter_factory, model,
-                           max_output_tokens, timeout, cancelled, include_evidence=True)
+                           max_output_tokens, timeout, cancelled, include_evidence=True, agent=agent)

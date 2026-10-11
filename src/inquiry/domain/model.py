@@ -115,6 +115,7 @@ class Run:
     progress: tuple = ()
     last_heartbeat_at: Optional[str] = None
     target_snapshot: Optional[dict] = None
+    actor: str = 'agent:runner'
 
 
 @dataclass(frozen=True)
