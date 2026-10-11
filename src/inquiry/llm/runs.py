@@ -36,6 +36,23 @@ class Runner:
                 outputs += run.usage['output_tokens']
         return dict(input_tokens=inputs, output_tokens=outputs, unknown_runs=unknown)
 
+    @staticmethod
+    def _used_tokens(runs):
+        """Accumulated input+output tokens, excluding unknown usage (same rule as totals)."""
+        return sum(run.usage['input_tokens'] + run.usage['output_tokens']
+                   for run in runs.values() if run.usage['status'] != 'unknown')
+
+    def budget_status(self):
+        """Current spend against the cap. near is advisory (ADR-D6 post-hoc warning)."""
+        state = self.state()
+        cap, used = state.spend_cap, self._used_tokens(state.runs)
+        unknown = sum(1 for run in state.runs.values() if run.usage['status'] == 'unknown')
+        return dict(cap=cap, used_tokens=used,
+                    remaining=None if cap is None else max(0, cap - used),
+                    over=cap is not None and used >= cap,
+                    near=cap is not None and used >= 0.9 * cap,
+                    unknown_runs=unknown)
+
     def _record(self, store, inquiry_id, change, actor='agent:runner', *, extra_changes=()):
         history = store.read_all()
         record = dict(schema_version=1, event_id=uuid4().hex, seq=len(history) + 1,
@@ -101,6 +118,11 @@ class Runner:
                 raise ValueError('Run ID already exists; inspect its outcome, do not dispatch again.')
             if any(run.status == 'started' for run in state.runs.values()):
                 raise ValueError('Unfinished runs require explicit recovery.')
+            if state.spend_cap is not None:
+                used = self._used_tokens(state.runs)
+                if used >= state.spend_cap:
+                    raise ValueError(f'Spend cap reached ({used}/{state.spend_cap} tokens); '
+                                     'raise the cap to resume.')
             if preflight is not None:
                 preflight(state)
             started = asdict(request)

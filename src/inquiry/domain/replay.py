@@ -218,6 +218,7 @@ def replay(events):
     hypotheses, actions, evidence, links, runs = {}, {}, {}, [], {}
     branch_proposals = {}
     operation_proposals, review_notes = {}, {}
+    spend_cap = None
     seen = set()
     ids = []
     for line, source in enumerate(events, 1):
@@ -267,6 +268,13 @@ def replay(events):
                 if inquiry is not None:
                     raise ReplayError('Inquiry already created.', line)
                 inquiry = Inquiry(inquiry_id, change['seed'], change['frame'])
+            elif change['kind'] == 'SpendCapSet':
+                if inquiry is None:
+                    raise ReplayError('Set a spend cap only after the inquiry exists.', line)
+                role, _, name = event['actor'].partition(':')
+                if role != 'human' or not name.strip():
+                    raise ReplayError('A spend cap is a human setting.', line)
+                spend_cap = change['max_tokens']
             else:
                 if inquiry is None:
                     raise ReplayError('Create an inquiry before domain objects.', line)
@@ -283,4 +291,4 @@ def replay(events):
                 raise ReplayError('All synthesis parents must change together.', line)
     return State(inquiry_id, len(ids), tuple(ids), inquiry, sessions,
                  hypotheses, actions, evidence, tuple(links), runs, branch_proposals,
-                 operation_proposals, review_notes)
+                 operation_proposals, review_notes, spend_cap)

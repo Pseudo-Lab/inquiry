@@ -106,6 +106,16 @@ def _openai_factory(root, model, max_output_tokens, timeout, *, purpose='framing
     return create
 
 
+def _warn_if_near(root):
+    """ADR-D6 near-cap warning in the run flow (post-hoc, advisory)."""
+    from inquiry.llm.runs import Runner
+    status = Runner(root).budget_status()
+    if status['near']:
+        print('WARNING: spend at {used}/{cap} tokens ({pct}%); raise the cap if you need more runs.'.format(
+            used=status['used_tokens'], cap=status['cap'],
+            pct=int(100 * status['used_tokens'] / status['cap'])), file=sys.stderr)
+
+
 def _generation_options(parser):
     parser.add_argument('--model')
     parser.add_argument('--max-output-tokens', type=_positive_int)
@@ -164,6 +174,12 @@ def main(argv=None, *, adapter=None):
     _generation_options(reassess)
     assess_subs.add_parser('show', help='Show current assessment ranges and provenance').add_argument('hypothesis_id')
     assess_subs.add_parser('resume')
+    budget = subs.add_parser('budget', help='Token spend cap for this inquiry (ADR-D6)')
+    budget_subs = budget.add_subparsers(dest='operation', required=True)
+    budget_subs.add_parser('show', help='Accumulated tokens vs cap')
+    budget_set = budget_subs.add_parser('set', help='Set or raise the token spend cap')
+    budget_set.add_argument('--max-tokens', type=_positive_int, required=True)
+    budget_set.add_argument('--reason', default='')
     config = subs.add_parser('config', help='Validate project-local provider settings')
     config_subs = config.add_subparsers(dest='operation', required=True)
     config_check = config_subs.add_parser('check', help='Check settings without revealing credentials')
@@ -258,6 +274,8 @@ def main(argv=None, *, adapter=None):
                 result = service.reject(args.proposal_id, args.reason)
             else:
                 result = {'recovered': Runner(args.dir).recover()}
+            if args.operation == 'propose':
+                _warn_if_near(args.dir)
             print(json.dumps(result, ensure_ascii=False, indent=2))
             return
         if args.command == 'explore':
@@ -281,6 +299,8 @@ def main(argv=None, *, adapter=None):
                 result = service.notes(args.hypothesis_id)
             else:
                 result = {'recovered': Runner(args.dir).recover()}
+            if args.operation == 'propose':
+                _warn_if_near(args.dir)
             print(json.dumps(result, ensure_ascii=False, indent=2))
             return
         if args.command == 'assess':
@@ -300,9 +320,17 @@ def main(argv=None, *, adapter=None):
                 result = {'recovered': Runner(args.dir).recover()}
                 print(json.dumps(result, ensure_ascii=False, indent=2))
                 return
+            if args.operation in ('score', 'reassess'):
+                _warn_if_near(args.dir)
             result = None if assessment is None else asdict(assessment)
             print(json.dumps({'hypothesis_id': args.hypothesis_id, 'assessment': result},
                              ensure_ascii=False, indent=2))
+            return
+        if args.command == 'budget':
+            from inquiry.llm.runs import Runner
+            if args.operation == 'set':
+                Commands(args.dir).set_cap(args.max_tokens, args.reason)
+            print(json.dumps(Runner(args.dir).budget_status(), ensure_ascii=False, indent=2))
             return
         if args.command == 'chat':
             from inquiry.ui.interactive import run_conversation
