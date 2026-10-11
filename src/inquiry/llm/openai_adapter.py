@@ -198,7 +198,8 @@ class OpenAIAdapter:
         timeout = min(10.0, float(request.timeout))
         if request.operation not in (
                 'framing.control', 'framing.propose', 'hypothesis.fork',
-                'hypothesis.deepen', 'hypothesis.challenge', 'hypothesis.synthesize'):
+                'hypothesis.deepen', 'hypothesis.challenge', 'hypothesis.synthesize',
+                'hypothesis.assess', 'hypothesis.reassess'):
             raise ValueError('unsupported operation')
         system, output_schema = request.context['system'], request.context['output_schema']
         if not isinstance(system, str) or not isinstance(output_schema, dict):
@@ -217,6 +218,17 @@ class OpenAIAdapter:
                     raise ValueError('invalid operation context')
                 payload = dict(inquiry_frame=frame,
                                parents=[parent_context(parent) for parent in parents])
+        elif request.operation in ('hypothesis.assess', 'hypothesis.reassess'):
+            from inquiry.features.branch.schema import parent_context
+            frame = request.context['inquiry_frame']
+            if not isinstance(frame, dict):
+                raise ValueError('invalid assessment context')
+            payload = dict(inquiry_frame=frame, hypothesis=parent_context(request.context['hypothesis']))
+            if request.operation == 'hypothesis.reassess':
+                evidence = request.context['evidence']
+                if not isinstance(evidence, (list, tuple)):
+                    raise ValueError('invalid assessment evidence')
+                payload['evidence'] = [dict(item) for item in evidence]
         else:
             payload = dict(seed=request.context.get('seed'), qa=request.context.get('qa', []))
             rejected = request.context.get('rejected')

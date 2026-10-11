@@ -1,7 +1,7 @@
 # ADR-D3 — Confidence 데이터 모델 + Provenance
 
 - 상태: **Accepted** (구조·원칙 확정; 축별 앵커 문구는 v0 초안이며 사례 축적으로 calibration — D5·D6과 동일 패턴)
-- 작성일: 2026-08-28 · 보완: 2026-10-10 (평가기준 리서치 반영 — 원칙 4·축 역할 구분 추가)
+- 작성일: 2026-08-28 · 보완: 2026-10-10 (평가기준 리서치 반영 — 원칙 4·축 역할 구분 추가) · 2026-10-12 (M3 런타임 운용 결정 — 아래 섹션)
 - 관련: PRODUCT-CONCEPT §4.3 §6.4 §20(가짜 정밀도) §21.10 · REVIEW 1-③ · rubric 운영: [`assess-hypothesis` 스킬](../../.claude/skills/assess-hypothesis/SKILL.md) · 근거 리서치: [평가 기준 공백(ACH·GRADE·LLM-judge)](../../reference/evaluation-criteria-gaps-research.md)
 
 ## 맥락
@@ -30,6 +30,16 @@
 - **[원칙 2] evidence는 시스템 밖에 독립적으로 존재하는 것만 인정한다.** `evidence.type`은 허용 목록으로 제한: `external-article` · `measured-result` · `human-interview` · `human-judgment` · `dataset`. LLM/에이전트의 자체 의견·결론은 근거가 될 수 없다(**`llm-opinion` 금지** — 순환 방지). 에이전트가 외부 자료를 검색·요약해 가져오는 것은 허용되나, 그때 근거는 *그 외부 자료*(uri·quote)이고 에이전트는 운반책일 뿐이다. **판정 기준: LLM이 사라져도 남아 있는 것만 evidence.**
 - **rubric 운영 위치:** 위 원칙(구조·계약)은 이 ADR에 **동결**. 축별 앵커 사다리 문구 + calibration 사례는 [`assess-hypothesis` 스킬](../../.claude/skills/assess-hypothesis/SKILL.md)에서 유지하며 사례 축적으로 정교화한다(스킬이 D3를 대체하지 않고, D3가 가리키는 살아있는 부속물).
 
+## M3 런타임 운용 결정 (2026-10-12)
+
+위 원칙(구조·계약)은 그대로 두고, M3에서 런타임으로 구현하며 확정한 **운용 수준** 결정이다. [구현 계획](../superpowers/plans/2026-10-11-m3-d3-confidence-runtime.md) 참조.
+
+- **채점 주체 = 런타임 agent run (agent-estimate).** 채점은 전용 run(`hypothesis.assess` 초기 4축 / `hypothesis.reassess` evidence_strength)으로 수행하고, run 성공과 **원자적으로** `HypothesisAssessed`/`ConfidenceUpdated`를 `agent:runner`로 기록한다. operation 승인 2단계(`OperationProposed`→`OperationAccepted`)를 쓰지 않는 **전용 1단계 경로**다. `assess-hypothesis` 스킬은 이 run의 **프롬프트 콘텐츠 정본**이며, 런타임이 직접 호출하는 대상이 아니다.
+- **"기록 ≠ 확정" (원칙 3 정합).** agent-estimate를 사람 승인 없이 기록하는 것은 원칙 3의 "자동 확정하지 않음"과 모순되지 않는다 — source가 `agent-estimate`로 남고 어떤 상태 전이도 유발하지 않으므로 *추정치 저장*일 뿐 *확정*이 아니다. `human-judgment`/`measured-result`로의 **승격**은 여전히 사람 판단·측정을 요구한다. 그 오프라인 승격(record) 경로는 후속 범위.
+- **원칙 4를 M3에서 advisory로 운용.** "등급 변경은 새 외부 독립 evidence일 때만"을 **hard-reject가 아니라 advisory**로 적용한다 — 근거 없는 상향은 거부하지 않고 해당 축에 `unverified=true` 플래그 + rationale 열린질문으로 기록한다. 원칙 4의 *의도*(sycophancy 차단)는 유지하되, v0에서는 차단 대신 가시화한다. 상향 판정은 이전 상태가 필요하므로 replay 계층 소관이며, 강제 수위는 M3 실측 후 재검토(아래 열린 질문).
+- **evidence_ref 규칙.** assessment가 인용하는 evidence는 `EVIDENCE_TYPES`의 실제 `Evidence`만 가능하고(`llm-opinion`·review note 불가, 원칙 2), 해당 가설에 **이미 `EvidenceLinked`된** 것이어야 한다. 형식(범위·source·필드)은 순수 schema가, 존재·링크 선행은 replay가 검증한다.
+- **채점 시점.** `suggested` 진입 시 4축(plausibility·novelty·impact·testability)을 초기 채점(evidence_strength는 근거 전이라 명시적 null). `exploring` 중 외부 evidence가 링크되면 evidence_strength를 축별 델타로 갱신. 이벤트는 전체 스냅샷 + 축별 델타 2종(옵션 A).
+
 ## 근거
 
 - 원문 철학 §4.3(확신을 진실처럼 표현하지 않음)의 직접 구현.
@@ -46,3 +56,5 @@
 - GRADE 5개 하향 도메인이 범위를 "몇 등급" 넓혀야 하는지의 임계 규칙 — v0 운용 규칙(도메인당 경계 1개, 최대 1등급)은 스킬에 두고 M3 사례로 교정.
 - **[해소됨] 평가 축별 rubric 내용.** 5개 축의 정의문 + 앵커 사다리(L0…L4) v0 초안을 [`assess-hypothesis` 스킬](../../.claude/skills/assess-hypothesis/SKILL.md)에 작성, H-001로 첫 calibration(CAL-001) 검증 완료. 앵커 정교화는 사례 축적으로 지속(D5·D6이 수치를 M3 실측으로 미룬 것과 동일 패턴)이며 D3 Accepted를 막지 않는다.
 - **[지속] 앵커 calibration.** 채점 사례가 앵커와 어긋나면 스킬의 앵커 문구를 교정. judge-LLM 채점의 축간 일관성·재현성은 M3 실측으로 점검.
+- **원칙 4 강제 수위.** M3 v0는 advisory(근거 없는 상향을 `unverified` 플래그로 가시화)로 운용. 실측에서 sycophantic 상향이 실제로 누적되면 hard-reject 또는 사람 승인 게이트로 격상할지 결정.
+- **assessment↔run 링크 검증.** 현재 `run_id`는 기록하되 replay에서 "실제 성공한 `hypothesis.assess` run"인지 batch 수준 대조는 하지 않는다(Runner가 유일 발행자라 안전). operation의 `validate_operation_batch`급 링크 검증이 필요한지 M3 실측으로 판단.

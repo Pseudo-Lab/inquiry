@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 import math
 import re
 from inquiry.llm.adapter import RunRequest, RunSignal, validate_request, validate_signal, validate_usage
+from inquiry.features.assessment.schema import AXES, validate_assessment, validate_axis
 
 
 class EventValidationError(ValueError):
@@ -37,6 +38,8 @@ CHANGE_FIELDS = {
     'EvidenceLinked': frozenset({'kind', 'evidence_id', 'hypothesis_id', 'relation'}),
     'HypothesisStateChanged': frozenset({'kind', 'hypothesis_id', 'from', 'to', 'trigger', 'actor', 'at', 'reason',
                                        'evidence_ids', 'evidence_snapshot', 'reopen_if', 'synthesis_target'}),
+    'HypothesisAssessed': frozenset({'kind', 'hypothesis_id', 'run_id', 'assessment'}),
+    'ConfidenceUpdated': frozenset({'kind', 'hypothesis_id', 'run_id', 'axis', 'score'}),
     'ActionCreated': frozenset({'kind', 'action_id', 'hypothesis_id', 'title'}),
     'ActionChecked': frozenset({'kind', 'action_id'}),
     'ActionUnchecked': frozenset({'kind', 'action_id'}),
@@ -276,4 +279,17 @@ def validate_event(event):
                 if not isinstance(snapshot, dict) or set(snapshot) != {'items', 'note'} or not isinstance(snapshot['items'], list):
                     raise EventValidationError('Invalid evidence snapshot.')
                 _text(snapshot['note'], 'snapshot note')
+        elif kind in ('HypothesisAssessed', 'ConfidenceUpdated'):
+            for key in ('hypothesis_id', 'run_id'):
+                _text(change[key], key)
+            try:
+                if kind == 'HypothesisAssessed':
+                    validate_assessment(change['assessment'])
+                else:
+                    if change['axis'] not in AXES:
+                        raise ValueError('Unknown assessment axis.')
+                    if validate_axis(change['score']) is None:
+                        raise ValueError('Confidence update requires a scored axis.')
+            except ValueError as error:
+                raise EventValidationError(str(error)) from error
     return deepcopy(event)

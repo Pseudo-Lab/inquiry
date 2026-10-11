@@ -42,8 +42,15 @@ def validate_branch(payload) -> dict:
 
 
 def parent_snapshot(hypothesis) -> dict:
-    """Freeze the complete persisted parent projection as detached JSON."""
-    return _object(json.loads(json.dumps(asdict(hypothesis), allow_nan=False)))
+    """Freeze the persisted parent projection as detached JSON.
+
+    Excludes `assessment`: it is not part of the candidate-generation projection,
+    and including it would make the snapshot drift whenever a parent is re-scored,
+    breaking the target_snapshot replay check on pre-D3 logs (ADR-D3 runtime plan).
+    """
+    frozen = json.loads(json.dumps(asdict(hypothesis), allow_nan=False))
+    frozen.pop('assessment', None)
+    return _object(frozen)
 
 
 def parent_context(snapshot) -> dict:

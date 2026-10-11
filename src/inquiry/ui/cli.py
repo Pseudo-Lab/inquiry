@@ -87,6 +87,11 @@ def _openai_factory(root, model, max_output_tokens, timeout, *, purpose='framing
                           'hypothesis contexts. Maximum output tokens: {limit}; timeout {timeout:g}s. '
                           'Synthesis generation makes one request. OpenAI API usage may incur cost.').format(
                               model=settings.model, limit=max_output_tokens or 4000, timeout=timeout)
+            elif purpose == 'assess':
+                notice = ('NOTICE: OpenAI model {model} will receive the inquiry frame and the '
+                          'hypothesis content. Maximum output tokens: {limit}; timeout {timeout:g}s. '
+                          'Assessment scoring makes one request. OpenAI API usage may incur cost.').format(
+                              model=settings.model, limit=max_output_tokens or 4000, timeout=timeout)
             else:
                 notice = ('NOTICE: OpenAI model {model} will receive the framing seed and '
                           'answered Q&A. Maximum output tokens per call: control {control}, '
@@ -149,6 +154,16 @@ def main(argv=None, *, adapter=None):
     reject.add_argument('--reason', required=True)
     explore_subs.add_parser('notes').add_argument('hypothesis_id')
     explore_subs.add_parser('resume')
+    assess = subs.add_parser('assess', help='Agent-estimate confidence scoring (ADR-D3)')
+    assess_subs = assess.add_subparsers(dest='operation', required=True)
+    score = assess_subs.add_parser('score', help='Initial four-axis scoring at suggested')
+    score.add_argument('hypothesis_id')
+    _generation_options(score)
+    reassess = assess_subs.add_parser('reassess', help='Re-score evidence_strength from linked evidence')
+    reassess.add_argument('hypothesis_id')
+    _generation_options(reassess)
+    assess_subs.add_parser('show', help='Show current assessment ranges and provenance').add_argument('hypothesis_id')
+    assess_subs.add_parser('resume')
     config = subs.add_parser('config', help='Validate project-local provider settings')
     config_subs = config.add_subparsers(dest='operation', required=True)
     config_check = config_subs.add_parser('check', help='Check settings without revealing credentials')
@@ -267,6 +282,27 @@ def main(argv=None, *, adapter=None):
             else:
                 result = {'recovered': Runner(args.dir).recover()}
             print(json.dumps(result, ensure_ascii=False, indent=2))
+            return
+        if args.command == 'assess':
+            from inquiry.features.assessment.service import AssessmentService
+            from inquiry.llm.runs import Runner
+            service = AssessmentService(args.dir)
+            if args.operation in ('score', 'reassess'):
+                factory = ((lambda: (adapter, args.model or 'fake')) if adapter is not None else
+                           _openai_factory(args.dir, args.model, args.max_output_tokens, args.timeout,
+                                           purpose='assess'))
+                method = service.assess if args.operation == 'score' else service.update_confidence
+                assessment = method(args.hypothesis_id, adapter_factory=factory,
+                                    max_output_tokens=args.max_output_tokens or 4000, timeout=args.timeout)
+            elif args.operation == 'show':
+                assessment = service.assessment(args.hypothesis_id)
+            else:
+                result = {'recovered': Runner(args.dir).recover()}
+                print(json.dumps(result, ensure_ascii=False, indent=2))
+                return
+            result = None if assessment is None else asdict(assessment)
+            print(json.dumps({'hypothesis_id': args.hypothesis_id, 'assessment': result},
+                             ensure_ascii=False, indent=2))
             return
         if args.command == 'chat':
             from inquiry.ui.interactive import run_conversation
