@@ -237,6 +237,10 @@ def main(argv=None, *, adapter=None):
     write_weekly = write_subs.add_parser('weekly')
     write_weekly.add_argument('--days', type=_positive_int, default=7)
     write_weekly.add_argument('--out', type=Path)
+    write_note = write_subs.add_parser('research-note', help='Snapshot of evidence & exploration')
+    write_note.add_argument('--out', type=Path)
+    write_decision = write_subs.add_parser('decision-record', help='Chronological log of state decisions')
+    write_decision.add_argument('--out', type=Path)
     evidence = subs.add_parser('evidence').add_subparsers(dest='operation', required=True)
     add = evidence.add_parser('add')
     add.add_argument('target')
@@ -496,15 +500,26 @@ def main(argv=None, *, adapter=None):
             from inquiry.store.store import Store
             from inquiry.weekly import build, render_markdown, render_text
             events = Store(args.dir).read_all()
-            report = build(events, replay(events), days=args.days)
+            state = replay(events)
+
+            def _emit_markdown(markdown):
+                if args.out is not None:
+                    args.out.parent.mkdir(parents=True, exist_ok=True)
+                    args.out.write_text(markdown, encoding='utf-8')
+                    print(json.dumps({'out': str(args.out)}, ensure_ascii=False))
+                else:
+                    print(markdown)
+
             if args.command == 'weekly':
-                print(render_text(report))
-            elif args.out is not None:
-                args.out.parent.mkdir(parents=True, exist_ok=True)
-                args.out.write_text(render_markdown(report), encoding='utf-8')
-                print(json.dumps({'out': str(args.out)}, ensure_ascii=False))
-            else:
-                print(render_markdown(report))
+                print(render_text(build(events, state, days=args.days)))
+            elif args.operation == 'weekly':
+                _emit_markdown(render_markdown(build(events, state, days=args.days)))
+            elif args.operation == 'research-note':
+                from inquiry.notes import build_research_note, render_research_note
+                _emit_markdown(render_research_note(build_research_note(events, state)))
+            elif args.operation == 'decision-record':
+                from inquiry.notes import build_decision_record, render_decision_record
+                _emit_markdown(render_decision_record(build_decision_record(events, state)))
             return
         elif args.command == 'evidence':
             relation = 'supports' if args.supports else 'challenges'
