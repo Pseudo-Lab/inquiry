@@ -88,12 +88,20 @@ class _Console:
             self.line(f'1~{len(labels)} 중 번호를 입력해 주세요.')
 
 
-def _candidates(console, candidates):
-    """가설 후보 블록 — 번호·제목을 강조하고 후보 사이를 비워 덩어리로 구분."""
+def _candidates(console, candidates, duplicates=None):
+    """가설 후보 블록 — 번호·제목을 강조하고 후보 사이를 비워 덩어리로 구분.
+
+    duplicates(={candidate_id: [hypothesis_id,...]})가 주어지면(포크 경로) 기존 활성 가설과
+    유사한 후보에 경고를 붙여 차별성 낮은 제안을 사람이 보게 한다(B4 / D11 연계). framing
+    경로는 인자 없이 호출되어 동작이 바뀌지 않는다."""
+    duplicates = duplicates or {}
     for index, candidate in enumerate(candidates, 1):
         console.line(console.accent(f"  {index}. {candidate['title']}"))
         console.line(f"     주장      {candidate['claim']}")
         console.line('     ' + console.bold('다른 점   ') + candidate['difference'])
+        peers = duplicates.get(candidate.get('candidate_id'))
+        if peers:
+            console.line('     ' + console.bold('⚠ 유사    ') + ', '.join(peers))
         console.line()
 
 
@@ -201,7 +209,9 @@ def _branch_once(console, root, factory, max_output_tokens, timeout):
     console.head(f'Branch proposal — {parent.id} {parent.title} 아래 자식 후보')
     console.line(console.dim('  번호로 일부만 골라 수락할 수 있습니다 (Accept Selected → 예: 1,3 또는 all).'))
     console.line()
-    _candidates(console, proposal['candidates'])
+    from inquiry.saturation import candidate_duplicate_ids
+    _candidates(console, proposal['candidates'],
+                candidate_duplicate_ids(proposal.get('near_duplicates')))
     try:
         if proposal['stale']:
             console.line('Stale — 부모가 바뀌어 승인할 수 없습니다. 거부 후 허용 부모에서 다시 생성하세요.')
