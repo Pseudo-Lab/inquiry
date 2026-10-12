@@ -76,10 +76,21 @@ STATUS_STYLE = {
 LANE_COLORS = ("bright_white", "bright_cyan", "medium_orchid", "bright_green",
                "bright_yellow", "bright_blue", "bright_red", "orange1")
 MODEL_OPS = ('deepen', 'challenge')
+# 결정 동사 → {evidence: 근거 선택 수집(CLI 관례), reopen_if: 재개 조건(refute/close 도메인 필수)}.
+# reason은 모든 결정에 필수. start는 기본 reason이 주입되므로 별도 경로(_transition)로 둔다.
+DECISION_VERBS = {
+    'support':  {'evidence': True,  'reopen_if': False},
+    'contest':  {'evidence': True,  'reopen_if': False},
+    'refute':   {'evidence': True,  'reopen_if': True},
+    'suspend':  {'evidence': False, 'reopen_if': False},
+    'continue': {'evidence': False, 'reopen_if': False},
+    'reopen':   {'evidence': True,  'reopen_if': False},
+    'close':    {'evidence': False, 'reopen_if': True},
+}
 LEGEND = "  ".join(f"{sym} {label}" for sym, label in STATUS.values())
-HELP = ("명령: start · deepen · challenge · fork · mark · synthesize · "
-        "accept · reject · cancel · action <제목> · check/uncheck <ID> · "
-        "find <ID> · legend · quit")
+HELP = ("명령: start · support · contest · refute · suspend · continue · reopen · "
+        "close · deepen · challenge · fork · mark · synthesize · accept · reject · "
+        "cancel · action <제목> · check/uncheck <ID> · find <ID> · legend · quit")
 
 
 def _order(state):
@@ -250,6 +261,7 @@ class InquiryTUI(App):
         self._last_sig = None          # 마지막으로 반영한 로그 signature
         self.pending = None            # 사람 승인 대기 중인 proposal
         self.pending_kind = None       # 'op' | 'branch'
+        self._decision = None          # 진행 중인 결정 입력 마법사 상태(A1)
         self.marked = set()            # synthesize 대상으로 표시한 가설 ID
         self.sel = 0                   # 선택된 노드 인덱스
         self._op_worker = None
@@ -261,6 +273,8 @@ class InquiryTUI(App):
     def _paused(self):
         """폴링 일시중지 조건 — 사람 조작 중엔 화면을 갱신하지 않는다."""
         if self.pending is not None:
+            return True
+        if self._decision is not None:   # 결정 마법사 중엔 폴링이 상태를 갈아끼우지 않게
             return True
         if self._op_worker is not None and not self._op_worker.is_finished:
             return True
@@ -515,6 +529,11 @@ class InquiryTUI(App):
         self.query_one("#cmd", Input).focus()
 
     def action_cancel_op(self):
+        if self._decision is not None:       # 결정 마법사 취소가 연산 취소보다 우선
+            self._decision = None
+            self._set_status("결정 취소됨")
+            self.query_one("#map", GraphView).focus()
+            return
         if self._op_worker is not None and not self._op_worker.is_finished:
             self._op_worker.cancel()
             self._set_status("연산 취소 요청됨…")
@@ -524,6 +543,11 @@ class InquiryTUI(App):
     def on_input_submitted(self, event: Input.Submitted):
         text = event.value.strip()
         event.input.value = ""
+        # 결정 마법사 진행 중이면 스텝으로 라우팅하고 #cmd 포커스를 유지(다음 입력 대기).
+        # _decision_step이 완료/취소 시 스스로 지도로 포커스를 돌린다.
+        if self._decision is not None:
+            self._decision_step(text)
+            return
         self.query_one("#map", GraphView).focus()
         if text:
             self._dispatch(text)
@@ -543,6 +567,8 @@ class InquiryTUI(App):
             self._start_synth()
         elif verb == "start":
             self._transition("start")
+        elif verb in DECISION_VERBS:
+            self._begin_decision(verb)
         elif verb == "action":
             self._add_action(rest)
         elif verb in ("check", "uncheck"):
@@ -589,6 +615,92 @@ class InquiryTUI(App):
         self._reload_state()
         self._rebuild_table()
         self._set_status(f"{hid} → {action} 적용")
+
+    # --- 결정 입력 마법사 (A1): reason·evidence·reopen_if를 순차 수집 ---
+    def _begin_decision(self, verb):
+        hid = self._current_hid
+        if hid is None or hid == 'ROOT':
+            self._set_status('가설을 선택한 뒤 결정하세요(ROOT는 탐구 자체).')
+            return
+        spec = DECISION_VERBS[verb]
+        links = [l for l in self.state.evidence_links if l.hypothesis_id == hid]
+        if spec['evidence'] and not links:
+            # TUI 정책(CLI 관례 미러) — 도메인 강제는 아님. support/contest/refute/reopen은 근거를 먼저.
+            self._set_status(f"{verb}: 먼저 근거를 링크하세요(evidence 선택 불가).")
+            return
+        need = ['reason']
+        if spec['evidence']:
+            need.append('evidence')
+        if spec['reopen_if']:
+            need.append('reopen_if')
+        self._decision = {'verb': verb, 'hid': hid, 'need': need, 'idx': 0,
+                          'got': {}, 'links': links}
+        self._prompt_decision_field()
+        self.query_one("#cmd", Input).focus()
+
+    def _prompt_decision_field(self):
+        d = self._decision
+        field = d['need'][d['idx']]
+        verb = d['verb']
+        if field == 'reason':
+            self._set_status(f"[{verb}] 사유(reason)를 입력하고 Enter (취소: cancel)")
+        elif field == 'evidence':
+            lines = [f"[{verb}] 근거 번호를 선택하세요 (취소: cancel)"]
+            for i, l in enumerate(d['links'], 1):
+                ev = self.state.evidence.get(l.evidence_id)
+                desc = f"{ev.type}: {ev.content[:60]}" if ev else l.evidence_id
+                lines.append(f"  {i}. [{l.relation}] {desc}")
+            self.query_one("#details", Static).update("\n".join(lines))
+            self._set_status(f"[{verb}] 근거 번호(1~{len(d['links'])}) 입력 후 Enter (취소: cancel)")
+        elif field == 'reopen_if':
+            self._set_status(f"[{verb}] 재개 조건(reopen_if)을 입력하고 Enter (취소: cancel)")
+
+    def _decision_step(self, text):
+        d = self._decision
+        if text.strip().lower() in ('cancel', '/cancel'):
+            self._decision = None
+            self._set_status("결정 취소됨")
+            self.query_one("#map", GraphView).focus()
+            return
+        field = d['need'][d['idx']]
+        if field == 'reason':
+            if not text.strip():
+                self._set_status("사유를 입력하세요(빈 값 불가, 취소: cancel).")
+                return
+            d['got']['reason'] = text.strip()
+        elif field == 'evidence':
+            links = d['links']
+            if not (text.strip().isdigit() and 1 <= int(text.strip()) <= len(links)):
+                self._set_status(f"1~{len(links)} 범위의 번호를 입력하세요(취소: cancel).")
+                return
+            d['got']['evidence_id'] = links[int(text.strip()) - 1].evidence_id
+        elif field == 'reopen_if':
+            if not text.strip():
+                self._set_status("재개 조건을 입력하세요(빈 값 불가, 취소: cancel).")
+                return
+            d['got']['reopen_if'] = text.strip()
+        d['idx'] += 1
+        if d['idx'] < len(d['need']):
+            self._prompt_decision_field()
+            return
+        self._commit_decision()
+
+    def _commit_decision(self):
+        d = self._decision
+        verb, hid, got = d['verb'], d['hid'], d['got']
+        self._decision = None
+        try:
+            Commands(self.root).decide(hid, verb, reason=got.get('reason', ''),
+                                       evidence_id=got.get('evidence_id'),
+                                       reopen_if=got.get('reopen_if'))
+        except Exception as e:  # noqa: BLE001 — surface to status line
+            self._set_status(f"{verb} 실패: {e}")
+            self.query_one("#map", GraphView).focus()
+            return
+        self._reload_state()
+        self._rebuild_table()
+        self._set_status(f"{hid} → {verb} 적용")
+        self.query_one("#map", GraphView).focus()
 
     def _add_action(self, title):
         hid = self._current_hid
