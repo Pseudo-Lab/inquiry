@@ -43,7 +43,37 @@ def summary(events, state, window=3, threshold=0.5, recent=10):
         duplicates=saturation.find_near_duplicates(state, threshold),
         recent_activity=activity,
         agent_last_seen=agent_activity(events),
+        usage=_usage(events),
     )
+
+
+def _usage(events):
+    """Aggregate external harness usage (A4 AgentUsageReported) per agent + total. Monitoring
+    only — independent of the D6 self-run budget (which tracks Run.usage)."""
+    by_agent = {}
+    total = {'input_tokens': 0, 'output_tokens': 0, 'est_cost': 0.0, 'reports': 0}
+    cost_seen = False
+    for event in events:
+        for change in event['changes']:
+            if change['kind'] != 'AgentUsageReported':
+                continue
+            u = change['usage']
+            agent = event['actor']
+            bucket = by_agent.setdefault(agent, {'input_tokens': 0, 'output_tokens': 0,
+                                                 'est_cost': 0.0, 'reports': 0})
+            for target in (bucket, total):
+                target['input_tokens'] += u['input_tokens']
+                target['output_tokens'] += u['output_tokens']
+                target['reports'] += 1
+                if u['est_cost'] is not None:
+                    target['est_cost'] += u['est_cost']
+            if u['est_cost'] is not None:
+                cost_seen = True
+    if not cost_seen:          # no cost reported anywhere → drop the 0.0 noise
+        total.pop('est_cost', None)
+        for bucket in by_agent.values():
+            bucket.pop('est_cost', None)
+    return {'by_agent': by_agent, 'total': total}
 
 
 # Human-readable rendering now lives in the TUI (ADR-D12); `status`/`review` emit JSON for
@@ -141,8 +171,16 @@ def control_summary_text(data, now=None, active_window=30):
     now = now or datetime.now(timezone.utc)
     seen = data.get('agent_last_seen', {})
     agents = ', '.join(_agent_recency(a, seen, now, active_window) for a in data['agents']) or '—'
-    return (f"{data['hypotheses']} hypotheses · agents: {agents} · "
+    line = (f"{data['hypotheses']} hypotheses · agents: {agents} · "
             f"{sat_txt} · dup {len(data['duplicates'])}")
+    total = (data.get('usage') or {}).get('total', {})
+    tokens = total.get('input_tokens', 0) + total.get('output_tokens', 0)
+    if tokens:
+        tail = f" · usage {tokens} tok"
+        if total.get('est_cost'):
+            tail += f"/${total['est_cost']:.2f}"
+        line += tail
+    return line
 
 
 def review(events, state, threshold=0.5):

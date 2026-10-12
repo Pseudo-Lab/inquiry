@@ -277,6 +277,13 @@ def replay(events):
                 if role != 'human' or not name.strip():
                     raise ReplayError('A spend cap is a human setting.', line)
                 spend_cap = change['max_tokens']
+            elif change['kind'] == 'AgentUsageReported':
+                # Monitoring only (A4): external harness usage, aggregated by monitor from events.
+                # No state projection; just pin the invariants (inquiry exists, agent-attributed).
+                if inquiry is None:
+                    raise ReplayError('Report usage only after the inquiry exists.', line)
+                if not is_agent_actor(event['actor']):
+                    raise ReplayError('Usage reports must be attributed to an agent.', line)
             else:
                 if inquiry is None:
                     raise ReplayError('Create an inquiry before domain objects.', line)
