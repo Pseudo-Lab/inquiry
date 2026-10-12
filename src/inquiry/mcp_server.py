@@ -7,7 +7,7 @@ LLM itself. Each session passes its agent name; writes are attributed to ``agent
 The `mcp` package is an optional/lazy dependency (like the OpenAI SDK): the handler
 functions below are plain, testable Python; only ``serve()`` needs `mcp` installed.
 """
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 from inquiry.features.ingest.service import IngestService
 from inquiry.domain.events import EVIDENCE_TYPES
@@ -119,23 +119,23 @@ def build_server(root, agent):
     IngestService(root, agent)  # validate the agent name eagerly (fail fast, clear message)
     server = _load_server_class()("inquiry")
 
-    @server.tool()
+    @server.tool(structured_output=True)
     def inquiry_add_hypothesis(title: str, claim: str, parents: Optional[list] = None,
                               assumptions: Optional[list] = None,
-                              falsified_if: Optional[list] = None) -> dict:
+                              falsified_if: Optional[list] = None) -> dict[str, Any]:
         """Propose a hypothesis in the shared inquiry graph (attributed to this agent)."""
         return add_hypothesis(root, agent, title, claim, parents, assumptions, falsified_if)
 
     # These Literals mirror EVIDENCE_TYPES / the relation whitelist so the allowed values show
     # up in the tool's input schema (agents pick from them instead of guessing "web"/"url").
     # test_mcp_and_status guards that the evidence-type Literal stays in sync with EVIDENCE_TYPES.
-    @server.tool()
+    @server.tool(structured_output=True)
     def inquiry_add_evidence(
             target: str,
             relation: Literal["supports", "challenges"],
             evidence_type: Literal["external-article", "measured-result",
                                    "human-interview", "human-judgment", "dataset"],
-            content: str, retrieved_at: str, uri: Optional[str] = None) -> dict:
+            content: str, retrieved_at: str, uri: Optional[str] = None) -> dict[str, Any]:
         """Attach external evidence you found to a hypothesis (model opinions are not evidence).
 
         relation: supports|challenges. 'external-article' and 'dataset' require a source `uri`.
@@ -143,12 +143,12 @@ def build_server(root, agent):
         """
         return add_evidence(root, agent, target, relation, evidence_type, content, retrieved_at, uri)
 
-    @server.tool()
+    @server.tool(structured_output=True)
     def inquiry_assess(
             target: str,
             axis: Literal["plausibility", "evidence_strength", "novelty", "impact", "testability"],
             low: float, high: float, rationale: str,
-            evidence_refs: Optional[list] = None, unverified: bool = True) -> dict:
+            evidence_refs: Optional[list] = None, unverified: bool = True) -> dict[str, Any]:
         """Push your D3 estimate for ONE axis of a hypothesis (as agent-estimate).
 
         low/high are a [0,1] range (not a point); rationale is required. evidence_refs cite
@@ -157,8 +157,8 @@ def build_server(root, agent):
         """
         return assess(root, agent, target, axis, low, high, rationale, evidence_refs, unverified)
 
-    @server.tool()
-    def inquiry_contest(target: str, reason: str, evidence_id: str) -> dict:
+    @server.tool(structured_output=True)
+    def inquiry_contest(target: str, reason: str, evidence_id: str) -> dict[str, Any]:
         """Mark a hypothesis contested (exploring/supported -> contested) with challenging evidence.
 
         Agents may contest but not refute/close/synthesize (those stay human-only). Requires a
@@ -167,10 +167,10 @@ def build_server(root, agent):
         """
         return contest(root, agent, target, reason, evidence_id)
 
-    @server.tool()
+    @server.tool(structured_output=True)
     def inquiry_report_usage(input_tokens: int, output_tokens: int,
                              est_cost: Optional[float] = None,
-                             price_ref: Optional[str] = None) -> dict:
+                             price_ref: Optional[str] = None) -> dict[str, Any]:
         """Report your token/cost usage so the human monitor can see spend for this session.
 
         Monitoring only — inquiry does NOT cap or block your generation (that is the operator's
@@ -179,8 +179,8 @@ def build_server(root, agent):
         """
         return report_usage(root, agent, input_tokens, output_tokens, est_cost, price_ref)
 
-    @server.tool()
-    def inquiry_status(window: int = 3, threshold: float = 0.5) -> dict:
+    @server.tool(structured_output=True)
+    def inquiry_status(window: int = 3, threshold: float = 0.5) -> dict[str, Any]:
         """Read the monitor summary: hypotheses by state, agents, saturation, near-duplicates."""
         return status(root, window, threshold)
 
