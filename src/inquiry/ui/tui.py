@@ -37,6 +37,7 @@ from inquiry.domain.replay import replay
 from inquiry import monitor
 
 SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"   # 모델 연산 실행 중 애니메이션 프레임
+SPINNER_ASCII = "|/-\\"       # --ascii 모드 스피너(유니코드 braille 대체)
 
 
 def _pad(text, width):
@@ -59,6 +60,20 @@ STATUS = {
     'synthesized': ('◆', 'Synthesized'),
     'human-closed': ('⊘', 'Closed'),
 }
+# --ascii fallback: 동일 키, 순수 ASCII 기호(유니코드 미지원 터미널·접근성).
+STATUS_ASCII = {
+    'suggested': ('o', 'Suggested'),
+    'exploring': ('O', 'Exploring'),
+    'supported': ('*', 'Supported'),
+    'contested': ('%', 'Contested'),
+    'suspended': ('-', 'Suspended'),
+    'refuted': ('x', 'Refuted'),
+    'synthesized': ('#', 'Synthesized'),
+    'human-closed': ('X', 'Closed'),
+}
+# 표시 레이어 유니코드→ASCII 치환(그래프 엣지·노드·마크·주석 글리프). graphlog 로직/cells는 유니코드 유지.
+ASCII_GLYPHS = {'│': '|', '╲': '\\', '╱': '/', '◆': '#', '•': '+',
+                '⚠': '!', '◀': '<', '⟶': '->'}
 STATUS_STYLE = {
     'suggested': 'grey62',
     'exploring': 'bright_cyan',
@@ -88,6 +103,15 @@ DECISION_VERBS = {
     'close':    {'evidence': False, 'reopen_if': True},
 }
 LEGEND = "  ".join(f"{sym} {label}" for sym, label in STATUS.values())
+
+
+def resolve_no_color(flag, env=None):
+    """--no-color 플래그 또는 NO_COLOR 환경변수(비어있지 않으면) 중 하나라도 참이면 무색."""
+    if env is None:
+        env = os.environ
+    return bool(flag) or bool(env.get("NO_COLOR"))
+
+
 HELP = ("명령: start · support · contest · refute · suspend · continue · reopen · "
         "close · deepen · challenge · fork · mark · synthesize · accept · reject · "
         "cancel · action <제목> · check/uncheck <ID> · find <ID> · legend · quit")
@@ -129,8 +153,8 @@ def _order(state):
     return [nodes[i] for i in order]
 
 
-def _detail_text(h, state):
-    sym, label = STATUS.get(h.status, ('?', h.status))
+def _detail_text(h, state, glyphs=STATUS):
+    sym, label = glyphs.get(h.status, ('?', h.status))
     lines = [f"[b]{h.id}[/b]  {sym} {label}", "", f"[b]주장[/b] {h.claim}"]
     if h.parent_ids:
         lines.append(f"[b]부모[/b] {', '.join(h.parent_ids)}")
@@ -252,12 +276,19 @@ class InquiryTUI(App):
                                  f"(inquiry {label[1][0]} {self.nodes[index].id} …)")
                 return
 
-    def __init__(self, root, op_factories=None, follow=True):
+    def __init__(self, root, op_factories=None, follow=True, *,
+                 no_color=False, no_animation=False, ascii_mode=False):
         super().__init__()
         self.root = root
         # op_factories: {operation: adapter_factory()->(adapter, model)}. None → 실행 불가(읽기).
         self.op_factories = op_factories or {}
         self.follow = follow           # 외부 push 실시간 반영(폴링). CLI --no-follow로 끔.
+        # B1 접근성: 무색/정적/ASCII. glyphs·tr·spinner를 모드에 맞게 선택.
+        self.no_color = no_color
+        self.no_animation = no_animation
+        self.ascii_mode = ascii_mode
+        self._glyphs = STATUS_ASCII if ascii_mode else STATUS
+        self._spinner = SPINNER_ASCII if ascii_mode else SPINNER
         self._last_sig = None          # 마지막으로 반영한 로그 signature
         self.pending = None            # 사람 승인 대기 중인 proposal
         self.pending_kind = None       # 'op' | 'branch'
@@ -269,6 +300,18 @@ class InquiryTUI(App):
         self._spin_i = 0
         self._spin_label = ""
         self._reload_state()
+
+    def _st(self, style):
+        """no_color면 빈 스타일(무색), 아니면 원본 Rich 스타일."""
+        return "" if self.no_color else style
+
+    def _tr(self, s):
+        """ascii_mode면 유니코드 글리프를 ASCII로 치환한 문자열."""
+        if not self.ascii_mode or not s:
+            return s
+        for uni, asc in ASCII_GLYPHS.items():
+            s = s.replace(uni, asc)
+        return s
 
     def _paused(self):
         """폴링 일시중지 조건 — 사람 조작 중엔 화면을 갱신하지 않는다."""
@@ -329,6 +372,9 @@ class InquiryTUI(App):
         yield Footer()
 
     def on_mount(self):
+        if self.no_color:
+            # 터미널 자체 팔레트에 위임(모노크롬/NO_COLOR 터미널 존중). 컨텐츠색은 _st로 이미 제거.
+            self.theme = "ansi-dark"
         frame = (self.state.inquiry.frame if self.state.inquiry else {}) or {}
         self.title = "Inquiry"
         self.sub_title = frame.get("central_question") or (
@@ -370,12 +416,12 @@ class InquiryTUI(App):
 
     def _build_table(self):
         t = Table(box=box.ROUNDED, expand=True, pad_edge=False, padding=(0, 1),
-                  border_style="grey42", header_style="bold bright_cyan",
-                  title="Branch log", title_justify="left", title_style="bold cyan",
+                  border_style=self._st("grey42"), header_style=self._st("bold bright_cyan"),
+                  title="Branch log", title_justify="left", title_style=self._st("bold cyan"),
                   caption=f"{len(self.nodes)} nodes", caption_justify="right",
-                  caption_style="grey50")
+                  caption_style=self._st("grey50"))
         t.add_column("GRAPH", no_wrap=True)
-        t.add_column("ID", no_wrap=True, style="grey74")
+        t.add_column("ID", no_wrap=True, style=self._st("grey74"))
         t.add_column("HYPOTHESIS", ratio=1)
         t.add_column("STATUS", no_wrap=True)
         by_id = {n.id: n for n in self.nodes}
@@ -385,12 +431,12 @@ class InquiryTUI(App):
         for row in graph_rows(self.nodes):
             if row['kind'] == 'fork':
                 t.add_row(self._edge_cell(row['cells']), "",
-                          Text("Fork", style="grey50"), "")
+                          Text("Fork", style=self._st("grey50")), "")
                 data_row += 1
                 continue
             if row['kind'] == 'merge':
                 t.add_row(self._edge_cell(row['cells']), "",
-                          Text("Merge / " + " + ".join(row['parents']), style="grey50"), "")
+                          Text("Merge / " + " + ".join(row['parents']), style=self._st("grey50")), "")
                 data_row += 1
                 continue
             if row['kind'] == 'compact':
@@ -403,41 +449,41 @@ class InquiryTUI(App):
             if selected:
                 sel_line = data_row
             # GRAPH 열: 노드(*)·머지(◆)·분기선만, 레인별 색. 상태 기호 없음.
-            glyph = '◆' if row['merge'] else '*'
+            glyph = self._tr('◆') if row['merge'] else '*'
             if h.status == 'root':
-                status_cell = Text("Inquiry", style="bold cyan")
+                status_cell = Text("Inquiry", style=self._st("bold cyan"))
             else:
-                sym, label = STATUS.get(h.status, ('?', h.status))
+                sym, label = self._glyphs.get(h.status, ('?', h.status))
                 status_cell = Text(f"{sym} {label}",
-                                   style=STATUS_STYLE.get(h.status, 'white'))
+                                   style=self._st(STATUS_STYLE.get(h.status, 'white')))
             title = Text(("▸ " if selected else "  ") + h.title)
             if h.id not in ('ROOT',):
                 agent = self._creators.get(h.id)
                 if agent:
-                    title.append(f"  {agent.split(':', 1)[-1]}", style="grey50")
+                    title.append(f"  {agent.split(':', 1)[-1]}", style=self._st("grey50"))
                 if monitor.duplicate_peers(self._summary['duplicates'], h.id):
-                    title.append("  ⚠dup", style="yellow")
+                    title.append(self._tr("  ⚠dup"), style=self._st("yellow"))
                 pending = monitor.pending_label(h.id, self._review)
                 if pending:
-                    title.append(f"  ◀{pending[0]}", style="bold magenta")
+                    title.append(self._tr(f"  ◀{pending[0]}"), style=self._st("bold magenta"))
             t.add_row(self._node_cell(row['cells'], row['col'], glyph, marked),
                       Text('' if h.id == 'ROOT' else h.id),
                       title,
                       status_cell,   # 상태 기호·색은 STATUS 열에만
-                      style=("on grey30" if selected else None))
+                      style=(self._st("on grey30") if selected else None))
             data_row += 1
         return t, sel_line
 
     def _node_cell(self, cells, col, glyph, marked=False):
         """노드 행: col에 */◆, 나머지 활성 레인은 │ — 레인별 색(머지 전까지 유지)."""
         c = Text()
-        c.append("•" if marked else " ", style="bold yellow" if marked else "")
+        c.append(self._tr("•") if marked else " ", style=self._st("bold yellow") if marked else "")
         for i, ch in enumerate(cells):
             color = LANE_COLORS[i % len(LANE_COLORS)]
             if i == col:
-                c.append(glyph, style=f"bold {color}")
+                c.append(self._tr(glyph), style=self._st(f"bold {color}"))
             elif ch == '│':
-                c.append('│', style=color)
+                c.append(self._tr('│'), style=self._st(color))
             else:
                 c.append(' ')
             c.append(' ')
@@ -448,7 +494,7 @@ class InquiryTUI(App):
         c = Text(" ")
         for i, ch in enumerate(cells):
             color = LANE_COLORS[i % len(LANE_COLORS)]
-            c.append(ch if ch != ' ' else ' ', style=color)
+            c.append(self._tr(ch) if ch != ' ' else ' ', style=self._st(color))
             c.append(' ')
         return c
 
@@ -475,7 +521,7 @@ class InquiryTUI(App):
 
     def _detail(self, h):
         """Base detail + control-plane block (proposing agent, confidence, dup, gate)."""
-        text = _detail_text(h, self.state)
+        text = _detail_text(h, self.state, glyphs=self._glyphs)
         extra = []
         agent = self._creators.get(h.id)
         if agent:
@@ -485,10 +531,10 @@ class InquiryTUI(App):
             extra.append(f"[b]confidence[/b] {conf}")
         peers = monitor.duplicate_peers(self._summary['duplicates'], h.id)
         if peers:
-            extra.append(f"[b]⚠ 중복 유사[/b] {', '.join(peers)}")
+            extra.append(self._tr(f"[b]⚠ 중복 유사[/b] {', '.join(peers)}"))
         pending = monitor.pending_label(h.id, self._review)
         if pending:
-            extra.append(f"[b]⟶ 결정 대기[/b] {pending[0]}: {' / '.join(pending[1])}")
+            extra.append(self._tr(f"[b]⟶ 결정 대기[/b] {pending[0]}: {' / '.join(pending[1])}"))
         return text + ("\n" + "\n".join(extra) if extra else "")
 
     def _update_summary(self):
@@ -502,16 +548,22 @@ class InquiryTUI(App):
     def _start_spinner(self, label):
         self._spin_label = label
         self._spin_i = 0
+        if self.no_animation:
+            # 정적: 타이머 없이 라벨 1회만. 진행 중임은 라벨로 전달(가짜 진행률 아님).
+            self.query_one("#status", Static).update(
+                Text.assemble((f"{self._spin_label} ", ""),
+                              ("(cancel/Esc로 취소)", self._st("grey50"))))
+            return
         if self._spin_timer is None:
             self._spin_timer = self.set_interval(0.1, self._tick_spinner)
         self._tick_spinner()
 
     def _tick_spinner(self):
-        frame = SPINNER[self._spin_i % len(SPINNER)]
+        frame = self._spinner[self._spin_i % len(self._spinner)]
         self._spin_i += 1
         self.query_one("#status", Static).update(
-            Text.assemble((f"{frame} ", "bold cyan"), (f"{self._spin_label} ", ""),
-                          ("(cancel/Esc로 취소)", "grey50")))
+            Text.assemble((f"{frame} ", self._st("bold cyan")), (f"{self._spin_label} ", ""),
+                          ("(cancel/Esc로 취소)", self._st("grey50"))))
 
     def _stop_spinner(self):
         if self._spin_timer is not None:
@@ -582,7 +634,7 @@ class InquiryTUI(App):
         elif verb == "find":
             self._find(rest)
         elif verb == "legend":
-            self._set_status(LEGEND)
+            self._set_status("  ".join(f"{sym} {label}" for sym, label in self._glyphs.values()))
         else:
             self._set_status(f"알 수 없는 명령: {verb}. {HELP}")
 
@@ -909,5 +961,7 @@ class InquiryTUI(App):
         self._set_status("제안 거부됨")
 
 
-def run_tui(root, op_factories=None, follow=True):
-    InquiryTUI(root, op_factories=op_factories, follow=follow).run()
+def run_tui(root, op_factories=None, follow=True, *,
+            no_color=False, no_animation=False, ascii_mode=False):
+    InquiryTUI(root, op_factories=op_factories, follow=follow, no_color=no_color,
+               no_animation=no_animation, ascii_mode=ascii_mode).run()

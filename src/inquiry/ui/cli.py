@@ -147,6 +147,12 @@ def main(argv=None, *, adapter=None):
                      help='Monitor only — no in-process generation (agents push via MCP)')
     tui.add_argument('--no-follow', action='store_true',
                      help='Disable live refresh on external agent pushes')
+    tui.add_argument('--no-color', action='store_true',
+                     help='Disable content color (NO_COLOR env also honored)')
+    tui.add_argument('--no-animation', action='store_true',
+                     help='Disable the operation spinner (static label only)')
+    tui.add_argument('--ascii', action='store_true', dest='ascii_mode',
+                     help='ASCII fallback glyphs instead of unicode')
     branch = subs.add_parser('branch', help='Human-approved child hypothesis proposals')
     branch_subs = branch.add_subparsers(dest='operation', required=True)
     propose = branch_subs.add_parser('propose')
@@ -381,10 +387,12 @@ def main(argv=None, *, adapter=None):
                              timeout=args.timeout)
             return
         if args.command == 'tui':
-            from inquiry.ui.tui import run_tui
+            from inquiry.ui.tui import run_tui, resolve_no_color
             follow = not args.no_follow
+            a11y = dict(no_color=resolve_no_color(args.no_color),
+                        no_animation=args.no_animation, ascii_mode=args.ascii_mode)
             if args.read_only:
-                run_tui(args.dir, op_factories=None, follow=follow)
+                run_tui(args.dir, op_factories=None, follow=follow, **a11y)
                 return
             ops = ('deepen', 'challenge', 'fork', 'synthesize')
             if adapter is not None:
@@ -393,7 +401,7 @@ def main(argv=None, *, adapter=None):
                 op_factories = {op: _openai_factory(args.dir, args.model, args.max_output_tokens,
                                                     args.timeout, purpose=('branch' if op == 'fork' else op))
                                 for op in ops}
-            run_tui(args.dir, op_factories=op_factories, follow=follow)
+            run_tui(args.dir, op_factories=op_factories, follow=follow, **a11y)
             return
         if args.command == 'mcp':
             from inquiry.mcp_server import serve
