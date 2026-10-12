@@ -63,6 +63,15 @@ def near_duplicate_candidates(state, candidates, parent_id, threshold=0.5):
     return flags
 
 
+def candidate_duplicate_ids(near_duplicates):
+    """Group near_duplicate_candidates flags into {candidate_id: sorted([hypothesis_id, ...])}
+    so a UI can show which existing hypotheses a fork candidate duplicates (B4)."""
+    grouped = {}
+    for flag in near_duplicates or ():
+        grouped.setdefault(flag['candidate_id'], set()).add(flag['similar_hypothesis_id'])
+    return {cid: sorted(ids) for cid, ids in grouped.items()}
+
+
 def _agent_run_start_seqs(events):
     """Seqs of hypothesis.* RunStarted events (framing runs excluded)."""
     seqs = []

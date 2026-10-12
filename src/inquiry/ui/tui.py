@@ -860,9 +860,15 @@ class InquiryTUI(App):
         self.pending = proposal
         self.pending_kind = 'branch'
         cands = proposal.get('candidates', [])
+        from inquiry.saturation import candidate_duplicate_ids
+        dup = candidate_duplicate_ids(proposal.get('near_duplicates'))
         lines = ["[b]fork 후보[/b] — accept [번호…] (기본 전체) 또는 reject"]
         for i, c in enumerate(cands, 1):
-            lines.append(f"  {i}. {c['title']} — {c.get('difference', '')}")
+            line = f"  {i}. {c['title']} — {c.get('difference', '')}"
+            peers = dup.get(c.get('candidate_id'))
+            if peers:   # D11 중복: 차별성 낮은 후보를 사람이 승인 전에 보게(B4)
+                line += self._tr(f"  ⚠유사 {', '.join(peers)}")
+            lines.append(line)
         self.query_one("#details", Static).update("\n".join(lines))
         self._set_status(f"fork 제안 {len(cands)}개 — accept(전체) / accept 1 2 / reject")
 
