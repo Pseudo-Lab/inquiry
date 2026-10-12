@@ -42,6 +42,10 @@ CHANGE_FIELDS = {
     'ConfidenceUpdated': frozenset({'kind', 'hypothesis_id', 'run_id', 'axis', 'score'}),
     'SpendCapSet': frozenset({'kind', 'max_tokens', 'reason'}),
     'AgentUsageReported': frozenset({'kind', 'usage'}),
+    'BootstrapSeeded': frozenset({'kind', 'bootstrap_id', 'seed'}),
+    'BootstrapFrameProposed': frozenset({'kind', 'bootstrap_id', 'frame'}),
+    'BootstrapAccepted': frozenset({'kind', 'bootstrap_id'}),
+    'BootstrapRejected': frozenset({'kind', 'bootstrap_id', 'reason'}),
     'ActionCreated': frozenset({'kind', 'action_id', 'hypothesis_id', 'title'}),
     'ActionChecked': frozenset({'kind', 'action_id'}),
     'ActionUnchecked': frozenset({'kind', 'action_id'}),
@@ -293,6 +297,16 @@ def validate_event(event):
                 raise EventValidationError(str(error)) from error
             if change['usage']['status'] != 'known':
                 raise EventValidationError('Reported usage must be known.')
+        elif kind in ('BootstrapSeeded', 'BootstrapFrameProposed',
+                      'BootstrapAccepted', 'BootstrapRejected'):
+            _text(change['bootstrap_id'], 'bootstrap_id')
+            if kind == 'BootstrapSeeded':
+                _text(change['seed'], 'seed')
+            elif kind == 'BootstrapFrameProposed':
+                if not isinstance(change['frame'], dict):
+                    raise EventValidationError('frame must be a JSON object.')
+            elif kind == 'BootstrapRejected':
+                _text(change['reason'], 'reason')
         elif kind in ('HypothesisAssessed', 'ConfidenceUpdated'):
             for key in ('hypothesis_id', 'run_id'):
                 _text(change[key], key)

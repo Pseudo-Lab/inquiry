@@ -106,9 +106,44 @@ def report_usage(root, agent, input_tokens, output_tokens, est_cost=None, price_
     return {"ok": True, "input_tokens": int(input_tokens), "output_tokens": int(output_tokens)}
 
 
+def propose_frame(root, agent, bootstrap_id, central_question, purpose='', criteria=None,
+                  scope_include=None, scope_exclude=None):
+    """A5: propose a structured frame for a human-seeded topic. Structured error on invalid input
+    (e.g. no such seeded topic — a human must `inquiry seed <topic>` first)."""
+    frame = {
+        'central_question': central_question,
+        'purpose': purpose,
+        'criteria': list(criteria or ()),
+        'scope': {'include': list(scope_include or ()), 'exclude': list(scope_exclude or ())},
+    }
+    try:
+        IngestService(root, agent).propose_frame(bootstrap_id, frame)
+    except ValueError as error:
+        return {
+            "error": str(error),
+            "hint": ("central_question is required. A human throws the topic first "
+                     "(`inquiry seed <topic>`), then you propose a frame for that bootstrap_id; "
+                     "the human accepts it to create the inquiry. You cannot create the inquiry."),
+        }
+    return {"ok": True, "bootstrap_id": bootstrap_id, "status": "proposed"}
+
+
 def status(root, window=3, threshold=0.5):
     events = Store(root).read_all()
-    return monitor.summary(events, replay(events), window=window, threshold=threshold)
+    state = replay(events)
+    if state.inquiry is None:
+        # A5 guidance: no inquiry yet — show seeded topics awaiting a frame so the agent knows
+        # what to propose for (and that a human must seed first). Not the full monitor summary.
+        return {
+            "initialized": False,
+            "bootstraps": [dict(id=b['id'], seed=b['seed'], status=b['status'],
+                                has_frame=b['frame'] is not None, proposed_by=b['proposed_by'])
+                           for b in state.bootstraps.values()],
+            "hint": ("No inquiry yet. A human seeds a topic (`inquiry seed <topic>`); you may then "
+                     "propose a frame for a seeded bootstrap via inquiry_propose_frame; a human "
+                     "accepts it to create the inquiry."),
+        }
+    return monitor.summary(events, state, window=window, threshold=threshold)
 
 
 def build_server(root, agent):
@@ -180,8 +215,25 @@ def build_server(root, agent):
         return report_usage(root, agent, input_tokens, output_tokens, est_cost, price_ref)
 
     @server.tool(structured_output=True)
+    def inquiry_propose_frame(
+            bootstrap_id: str, central_question: str, purpose: str = "",
+            criteria: Optional[list] = None,
+            scope_include: Optional[list] = None, scope_exclude: Optional[list] = None) -> dict[str, Any]:
+        """Propose a frame for a human-seeded topic (A5 bootstrap), so a human can accept it to
+        create the inquiry. The topic is always human-thrown: call inquiry_status first to find a
+        seeded bootstrap_id (initialized:false → bootstraps). You cannot create the inquiry yourself.
+        Returns {"error","hint"} on failure.
+        """
+        return propose_frame(root, agent, bootstrap_id, central_question, purpose,
+                             criteria, scope_include, scope_exclude)
+
+    @server.tool(structured_output=True)
     def inquiry_status(window: int = 3, threshold: float = 0.5) -> dict[str, Any]:
-        """Read the monitor summary: hypotheses by state, agents, saturation, near-duplicates."""
+        """Read the monitor summary: hypotheses by state, agents, saturation, near-duplicates.
+
+        Before any inquiry exists this returns {"initialized": false, "bootstraps": [...]} so you
+        can see human-seeded topics awaiting a frame proposal.
+        """
         return status(root, window, threshold)
 
     return server

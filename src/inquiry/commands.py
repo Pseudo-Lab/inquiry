@@ -79,6 +79,39 @@ class Commands:
             return [dict(kind='InquiryCreated', seed=seed, frame=frame)], identity
         return self._commit(build, allow_new=True)
 
+    def seed_topic(self, seed):
+        """A5: a human throws a topic to bootstrap a shared inquiry; an agent then proposes a
+        frame (inquiry_propose_frame) and the human accepts. The seed is always human-originated."""
+        def build(state, at, identity):
+            if state.inquiry is not None:
+                raise ValueError('Inquiry already initialized.')
+            bootstrap_id = 'BT-' + uuid4().hex
+            return [dict(kind='BootstrapSeeded', bootstrap_id=bootstrap_id, seed=seed)], bootstrap_id
+        return self._commit(build, allow_new=True)
+
+    def accept_bootstrap(self, bootstrap_id):
+        """A5 human gate: accept an agent-proposed frame → create the inquiry from it."""
+        def build(state, at, identity):
+            if state.inquiry is not None:
+                raise ValueError('Inquiry already initialized.')
+            boot = state.bootstraps.get(bootstrap_id)
+            if boot is None:
+                raise ValueError('Bootstrap does not exist.')
+            if boot['status'] != 'proposed' or boot['frame'] is None:
+                raise ValueError('Accept requires an agent-proposed frame.')
+            return [dict(kind='InquiryCreated', seed=boot['seed'], frame=boot['frame']),
+                    dict(kind='BootstrapAccepted', bootstrap_id=bootstrap_id)], identity
+        return self._commit(build, allow_new=True)
+
+    def reject_bootstrap(self, bootstrap_id, reason):
+        """A5 human gate: reject a weak proposal; the agent may propose a new frame for this seed."""
+        def build(state, at, identity):
+            boot = state.bootstraps.get(bootstrap_id)
+            if boot is None:
+                raise ValueError('Bootstrap does not exist.')
+            return [dict(kind='BootstrapRejected', bootstrap_id=bootstrap_id, reason=reason)], bootstrap_id
+        return self._commit(build, allow_new=True)
+
     def add_hypothesis(self, title, claim, parents=(), assumptions=(), falsified_if=()):
         def build(state, at, identity):
             node_id = _next_id('H', state.hypotheses)

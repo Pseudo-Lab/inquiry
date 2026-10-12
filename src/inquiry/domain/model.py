@@ -134,3 +134,4 @@ class State:
     operation_proposals: dict = field(default_factory=dict)
     review_notes: dict = field(default_factory=dict)
     spend_cap: Optional[int] = None
+    bootstraps: dict = field(default_factory=dict)   # A5: pre-inquiry 부트스트랩(사람 seed→에이전트 frame→사람 accept)

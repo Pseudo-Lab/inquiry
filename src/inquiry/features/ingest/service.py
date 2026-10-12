@@ -31,18 +31,18 @@ class IngestService:
     def state(self):
         return replay(Store(self.root).read_all())
 
-    def _commit(self, build):
+    def _commit(self, build, allow_new=False):
         # Agents push concurrently into the shared graph; retry transient contention
         # so a simultaneous write from another session does not drop this one (ADR-D12).
         def operation():
             with Store(self.root) as store:
                 state = replay(store.read_all())
-                if state.inquiry is None:
-                    raise ValueError('Initialize an inquiry first (the human bootstraps it).')
+                if not allow_new and state.inquiry is None:
+                    raise ValueError('No inquiry yet — a human seeds a topic (inquiry seed <topic>), you propose a frame, the human accepts.')
                 at = datetime.now(timezone.utc).isoformat()
                 changes, result = build(state, at)
                 store.append(dict(schema_version=1, event_id=uuid4().hex, seq=state.last_seq + 1,
-                    inquiry_id=state.inquiry_id, actor=self.actor, at=at,
+                    inquiry_id=state.inquiry_id or 'I-' + uuid4().hex, actor=self.actor, at=at,
                     type='changes-committed', changes=changes), expected_seq=state.last_seq)
                 return result
         return retry_on_contention(operation)
@@ -107,3 +107,18 @@ class IngestService:
         def build(state, at):
             return [dict(kind='AgentUsageReported', usage=usage)], None
         return self._commit(build)
+
+    def propose_frame(self, bootstrap_id, frame):
+        """A5: propose a structured frame for a human-seeded topic (pre-inquiry). The human then
+        accepts to create the inquiry. The agent cannot create the inquiry or invent the seed."""
+        if not isinstance(frame, dict):
+            raise ValueError('frame must be an object.')
+        def build(state, at):
+            if state.inquiry is not None:
+                raise ValueError('Inquiry already initialized.')
+            boot = state.bootstraps.get(bootstrap_id)
+            if boot is None or boot['status'] not in ('seeded', 'rejected'):
+                raise ValueError('Frame proposal requires a human-seeded topic '
+                                 '(a human must run `inquiry seed <topic>` first).')
+            return [dict(kind='BootstrapFrameProposed', bootstrap_id=bootstrap_id, frame=frame)], bootstrap_id
+        return self._commit(build, allow_new=True)
