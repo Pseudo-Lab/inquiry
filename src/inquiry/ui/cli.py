@@ -217,6 +217,9 @@ def main(argv=None, *, adapter=None):
     monitor_cmd.add_argument('--window', type=_positive_int, default=3)
     monitor_cmd.add_argument('--threshold', type=_positive_float, default=0.5)
     monitor_cmd.add_argument('--watch', type=_positive_float, help='Refresh every N seconds (live)')
+    review_cmd = subs.add_parser('review', help='What agent output awaits a human decision (human gate)')
+    review_cmd.add_argument('--threshold', type=_positive_float, default=0.5)
+    review_cmd.add_argument('--json', action='store_true', help='Emit structured JSON instead of text')
     mcp_cmd = subs.add_parser('mcp', help='Run the MCP server for harness-agent ingestion (ADR-D12)')
     mcp_cmd.add_argument('--agent', required=True, help='Session agent name; writes attributed to agent:<name>')
     saturation = subs.add_parser('saturation', help='Saturation signal & near-duplicate hypotheses (§8)')
@@ -479,6 +482,17 @@ def main(argv=None, *, adapter=None):
                     pass
             else:
                 print(_render())
+            return
+        elif args.command == 'review':
+            from inquiry.domain.replay import replay
+            from inquiry.store.store import Store
+            from inquiry import monitor
+            events = Store(args.dir).read_all()
+            groups = monitor.review(events, replay(events), threshold=args.threshold)
+            if args.json:
+                print(json.dumps(groups, ensure_ascii=False, indent=2))
+            else:
+                print(monitor.render_review(groups))
             return
         elif args.command == 'saturation':
             from inquiry.domain.replay import replay
