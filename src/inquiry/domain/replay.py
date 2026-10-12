@@ -221,6 +221,7 @@ def replay(events):
     branch_proposals = {}
     operation_proposals, review_notes = {}, {}
     spend_cap = None
+    bootstraps = {}
     seen = set()
     ids = []
     for line, source in enumerate(events, 1):
@@ -284,6 +285,40 @@ def replay(events):
                     raise ReplayError('Report usage only after the inquiry exists.', line)
                 if not is_agent_actor(event['actor']):
                     raise ReplayError('Usage reports must be attributed to an agent.', line)
+            elif change['kind'] in ('BootstrapSeeded', 'BootstrapFrameProposed',
+                                    'BootstrapAccepted', 'BootstrapRejected'):
+                # A5: pre-inquiry bootstrap. Human seeds + accepts/rejects; the agent proposes a
+                # frame. The topic (seed) is always human-thrown; the agent may not create an inquiry.
+                bid = change['bootstrap_id']
+                role, _, name = event['actor'].partition(':')
+                is_human = role == 'human' and bool(name.strip())
+                kind = change['kind']
+                if kind == 'BootstrapSeeded':
+                    if inquiry is not None:
+                        raise ReplayError('Seed a topic before the inquiry exists.', line)
+                    if not is_human:
+                        raise ReplayError('A human throws the seed topic.', line)
+                    if bid in bootstraps:
+                        raise ReplayError('Duplicate bootstrap id.', line)
+                    bootstraps[bid] = dict(id=bid, seed=change['seed'], frame=None,
+                                           status='seeded', proposed_by=None)
+                elif kind == 'BootstrapFrameProposed':
+                    if inquiry is not None:
+                        raise ReplayError('Propose a frame before the inquiry exists.', line)
+                    if not is_agent_actor(event['actor']):
+                        raise ReplayError('A frame proposal must be attributed to an agent.', line)
+                    boot = bootstraps.get(bid)
+                    if boot is None or boot['status'] not in ('seeded', 'rejected'):
+                        raise ReplayError('Frame proposal requires a seeded topic.', line)
+                    bootstraps[bid] = dict(boot, frame=change['frame'], status='proposed',
+                                           proposed_by=event['actor'])
+                else:   # BootstrapAccepted / BootstrapRejected — human gate
+                    if not is_human:
+                        raise ReplayError('Bootstrap decisions are a human gate.', line)
+                    boot = bootstraps.get(bid)
+                    if boot is None:
+                        raise ReplayError('Bootstrap does not exist.', line)
+                    bootstraps[bid] = dict(boot, status='accepted' if kind == 'BootstrapAccepted' else 'rejected')
             else:
                 if inquiry is None:
                     raise ReplayError('Create an inquiry before domain objects.', line)
@@ -300,4 +335,4 @@ def replay(events):
                 raise ReplayError('All synthesis parents must change together.', line)
     return State(inquiry_id, len(ids), tuple(ids), inquiry, sessions,
                  hypotheses, actions, evidence, tuple(links), runs, branch_proposals,
-                 operation_proposals, review_notes, spend_cap)
+                 operation_proposals, review_notes, spend_cap, bootstraps)

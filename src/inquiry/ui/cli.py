@@ -206,6 +206,16 @@ def main(argv=None, *, adapter=None):
     init = subs.add_parser('init', help='Manually initialize core data (not Framing)')
     init.add_argument('--seed', required=True)
     init.add_argument('--question', required=True)
+    seed_cmd = subs.add_parser('seed', help='A5: throw a topic for an agent to frame (human seeds)')
+    seed_cmd.add_argument('topic')
+    bootstrap = subs.add_parser('bootstrap', help='A5: review/accept agent frame proposals for a seeded topic')
+    bootstrap_subs = bootstrap.add_subparsers(dest='operation', required=True)
+    bootstrap_subs.add_parser('list', help='Seeded topics & proposed frames awaiting a human (JSON)')
+    boot_accept = bootstrap_subs.add_parser('accept', help='Accept a proposed frame → create the inquiry')
+    boot_accept.add_argument('bootstrap_id')
+    boot_reject = bootstrap_subs.add_parser('reject', help='Reject a weak proposal (agent may re-propose)')
+    boot_reject.add_argument('bootstrap_id')
+    boot_reject.add_argument('--reason', required=True)
     hypothesis = subs.add_parser('hypothesis').add_subparsers(dest='operation', required=True)
     add = hypothesis.add_parser('add')
     add.add_argument('--title', required=True)
@@ -454,6 +464,8 @@ def main(argv=None, *, adapter=None):
             return
         elif args.command == 'init':
             result = commands.initialize(args.seed, {'question': args.question})
+        elif args.command == 'seed':
+            result = commands.seed_topic(args.topic)
         elif args.command == 'hypothesis':
             result = commands.add_hypothesis(args.title, args.claim, args.parent, args.assumption, args.falsified_if)
         elif args.command == 'action':
@@ -498,6 +510,20 @@ def main(argv=None, *, adapter=None):
                 print(monitor.render_plan_text(groups))
             else:
                 print(json.dumps(groups, ensure_ascii=False, indent=2))
+            return
+        elif args.command == 'bootstrap':
+            from inquiry.domain.replay import replay
+            from inquiry.store.store import Store
+            if args.operation == 'list':
+                boots = replay(Store(args.dir).read_all()).bootstraps
+                print(json.dumps(list(boots.values()), ensure_ascii=False, indent=2))
+            elif args.operation == 'accept':
+                print(json.dumps({'inquiry_id': Commands(args.dir).accept_bootstrap(args.bootstrap_id)},
+                                 ensure_ascii=False))
+            else:
+                Commands(args.dir).reject_bootstrap(args.bootstrap_id, args.reason)
+                print(json.dumps({'bootstrap_id': args.bootstrap_id, 'status': 'rejected'},
+                                 ensure_ascii=False))
             return
         elif args.command == 'saturation':
             from inquiry.domain.replay import replay
