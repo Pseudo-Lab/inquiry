@@ -141,8 +141,12 @@ def main(argv=None, *, adapter=None):
     subs = parser.add_subparsers(dest='command', required=True)
     chat = subs.add_parser('chat', help='Interactive framing without copying IDs')
     _generation_options(chat)
-    tui = subs.add_parser('tui', help='Textual map + explore operations')
+    tui = subs.add_parser('tui', help='Interactive control-plane monitor (git-graph map, ADR-D12)')
     _generation_options(tui)
+    tui.add_argument('--read-only', action='store_true',
+                     help='Monitor only — no in-process generation (agents push via MCP)')
+    tui.add_argument('--no-follow', action='store_true',
+                     help='Disable live refresh on external agent pushes')
     branch = subs.add_parser('branch', help='Human-approved child hypothesis proposals')
     branch_subs = branch.add_subparsers(dest='operation', required=True)
     propose = branch_subs.add_parser('propose')
@@ -213,17 +217,8 @@ def main(argv=None, *, adapter=None):
     status_cmd = subs.add_parser('status', help='Monitor summary (JSON) across the shared inquiry graph')
     status_cmd.add_argument('--window', type=_positive_int, default=3)
     status_cmd.add_argument('--threshold', type=_positive_float, default=0.5)
-    monitor_cmd = subs.add_parser('monitor', help='Human-readable live dashboard (control-plane, ADR-D12)')
-    monitor_cmd.add_argument('--window', type=_positive_int, default=3)
-    monitor_cmd.add_argument('--threshold', type=_positive_float, default=0.5)
-    monitor_cmd.add_argument('--watch', type=_positive_float, help='Redraw every N seconds (fixed interval)')
-    monitor_cmd.add_argument('--follow', action='store_true',
-                             help='Redraw only when the log changes (near-instant, no idle churn)')
-    monitor_cmd.add_argument('--interval', type=_positive_float, default=0.5,
-                             help='Change-check interval for --follow (default 0.5s)')
-    review_cmd = subs.add_parser('review', help='What agent output awaits a human decision (human gate)')
+    review_cmd = subs.add_parser('review', help='Agent output awaiting a human decision (JSON, machine/orca)')
     review_cmd.add_argument('--threshold', type=_positive_float, default=0.5)
-    review_cmd.add_argument('--json', action='store_true', help='Emit structured JSON instead of text')
     mcp_cmd = subs.add_parser('mcp', help='Run the MCP server for harness-agent ingestion (ADR-D12)')
     mcp_cmd.add_argument('--agent', required=True, help='Session agent name; writes attributed to agent:<name>')
     saturation = subs.add_parser('saturation', help='Saturation signal & near-duplicate hypotheses (§8)')
@@ -387,6 +382,10 @@ def main(argv=None, *, adapter=None):
             return
         if args.command == 'tui':
             from inquiry.ui.tui import run_tui
+            follow = not args.no_follow
+            if args.read_only:
+                run_tui(args.dir, op_factories=None, follow=follow)
+                return
             ops = ('deepen', 'challenge', 'fork', 'synthesize')
             if adapter is not None:
                 op_factories = {op: (lambda a=adapter: (a, args.model or 'fake')) for op in ops}
@@ -394,7 +393,7 @@ def main(argv=None, *, adapter=None):
                 op_factories = {op: _openai_factory(args.dir, args.model, args.max_output_tokens,
                                                     args.timeout, purpose=('branch' if op == 'fork' else op))
                                 for op in ops}
-            run_tui(args.dir, op_factories=op_factories)
+            run_tui(args.dir, op_factories=op_factories, follow=follow)
             return
         if args.command == 'mcp':
             from inquiry.mcp_server import serve
@@ -468,48 +467,13 @@ def main(argv=None, *, adapter=None):
             report = monitor.summary(events, replay(events), window=args.window, threshold=args.threshold)
             print(json.dumps(report, ensure_ascii=False, indent=2))
             return
-        elif args.command == 'monitor':
-            from inquiry.domain.replay import replay
-            from inquiry.store.store import Store
-            from inquiry import monitor
-            def _render():
-                events = Store(args.dir).read_all()
-                return monitor.render_text(
-                    monitor.summary(events, replay(events), window=args.window, threshold=args.threshold))
-            if args.follow:
-                import time
-                store = Store(args.dir)
-                last = object()
-                try:
-                    while True:
-                        signature = store.signature()
-                        if signature != last:            # redraw only on actual change
-                            print('\033[2J\033[H' + _render(), flush=True)
-                            last = signature
-                        time.sleep(args.interval)
-                except KeyboardInterrupt:
-                    pass
-            elif args.watch:
-                import time
-                try:
-                    while True:
-                        print('\033[2J\033[H' + _render(), flush=True)
-                        time.sleep(args.watch)
-                except KeyboardInterrupt:
-                    pass
-            else:
-                print(_render())
-            return
         elif args.command == 'review':
             from inquiry.domain.replay import replay
             from inquiry.store.store import Store
             from inquiry import monitor
             events = Store(args.dir).read_all()
             groups = monitor.review(events, replay(events), threshold=args.threshold)
-            if args.json:
-                print(json.dumps(groups, ensure_ascii=False, indent=2))
-            else:
-                print(monitor.render_review(groups))
+            print(json.dumps(groups, ensure_ascii=False, indent=2))
             return
         elif args.command == 'saturation':
             from inquiry.domain.replay import replay
