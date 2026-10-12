@@ -161,6 +161,18 @@ class Store:
             raise StoreCorruptionError(error.line) from None
         return events
 
+    def signature(self):
+        """Cheap change token for the log: (mtime_ns, size), or None if absent.
+
+        Append-only means size strictly grows on every event, so a changed signature
+        reliably means new events — used by the monitor to redraw only on change.
+        """
+        try:
+            stat = self.path.stat()
+        except FileNotFoundError:
+            return None
+        return (stat.st_mtime_ns, stat.st_size)
+
     def read_all(self) -> list[dict]:
         self._check_pid()
         reader = None
