@@ -210,9 +210,13 @@ def main(argv=None, *, adapter=None):
     action.add_parser('check').add_argument('action_id')
     action.add_parser('uncheck').add_argument('action_id')
     subs.add_parser('actions', help='List actions grouped by hypothesis')
-    status_cmd = subs.add_parser('status', help='Monitor summary across the shared inquiry graph')
+    status_cmd = subs.add_parser('status', help='Monitor summary (JSON) across the shared inquiry graph')
     status_cmd.add_argument('--window', type=_positive_int, default=3)
     status_cmd.add_argument('--threshold', type=_positive_float, default=0.5)
+    monitor_cmd = subs.add_parser('monitor', help='Human-readable live dashboard (control-plane, ADR-D12)')
+    monitor_cmd.add_argument('--window', type=_positive_int, default=3)
+    monitor_cmd.add_argument('--threshold', type=_positive_float, default=0.5)
+    monitor_cmd.add_argument('--watch', type=_positive_float, help='Refresh every N seconds (live)')
     mcp_cmd = subs.add_parser('mcp', help='Run the MCP server for harness-agent ingestion (ADR-D12)')
     mcp_cmd.add_argument('--agent', required=True, help='Session agent name; writes attributed to agent:<name>')
     saturation = subs.add_parser('saturation', help='Saturation signal & near-duplicate hypotheses (§8)')
@@ -456,6 +460,25 @@ def main(argv=None, *, adapter=None):
             events = Store(args.dir).read_all()
             report = monitor.summary(events, replay(events), window=args.window, threshold=args.threshold)
             print(json.dumps(report, ensure_ascii=False, indent=2))
+            return
+        elif args.command == 'monitor':
+            from inquiry.domain.replay import replay
+            from inquiry.store.store import Store
+            from inquiry import monitor
+            def _render():
+                events = Store(args.dir).read_all()
+                return monitor.render_text(
+                    monitor.summary(events, replay(events), window=args.window, threshold=args.threshold))
+            if args.watch:
+                import time
+                try:
+                    while True:
+                        print('\033[2J\033[H' + _render(), flush=True)
+                        time.sleep(args.watch)
+                except KeyboardInterrupt:
+                    pass
+            else:
+                print(_render())
             return
         elif args.command == 'saturation':
             from inquiry.domain.replay import replay

@@ -42,7 +42,7 @@ M2~M3까지 inquiry는 **스스로 BYOK로 LLM을 호출해 가설을 생성하�
 
 ## 열린 질문
 
-- **모니터 심화:** `inquiry status`(JSON)를 넘어 TUI 대시보드를 inquiry가 가질지 vs orca가 상태를 읽어 렌더할지. (Phase 2)
+- **모니터 심화:** ~~TUI 대시보드를 inquiry가 가질지 vs orca가 렌더할지~~ → **Phase 2 해소(최소 후회):** `inquiry status`(JSON, orca/에이전트용) + `inquiry monitor [--watch]`(사람용 텍스트 라이브 대시보드). 무거운 Textual 의존 없이 양쪽을 다 살림 — 리치 TUI/orca 렌더는 이 위에 선택적 후속.
 - **외부 사용량/비용 보고:** harness→inquiry로 토큰/비용을 전달해 모니터링할 방식. (후속)
 - **MCP tool 표면 확장:** 에이전트-허용 상태 전이(contested 표시 등) push, assessment push를 tool로 열지. (Phase 1.5)
 - **D8 갱신 문서화:** BYOK 결정을 "self-run 한정"으로 정식 개정할지.
