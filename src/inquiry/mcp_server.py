@@ -91,6 +91,21 @@ def contest(root, agent, target, reason, evidence_id):
     return {"ok": True, "target": target, "status": "contested"}
 
 
+def report_usage(root, agent, input_tokens, output_tokens, est_cost=None, price_ref=None):
+    """A4: report external harness token/cost usage (monitoring only). Structured error on invalid
+    input (negative tokens, or est_cost without a price_ref)."""
+    try:
+        IngestService(root, agent).report_usage(input_tokens, output_tokens, est_cost, price_ref)
+    except (ValueError, TypeError) as error:
+        return {
+            "error": str(error),
+            "hint": ("input_tokens/output_tokens must be nonnegative integers; est_cost (if given) "
+                     "must be a nonnegative number AND requires a price_ref label. This is "
+                     "monitoring only — it does not cap or block generation."),
+        }
+    return {"ok": True, "input_tokens": int(input_tokens), "output_tokens": int(output_tokens)}
+
+
 def status(root, window=3, threshold=0.5):
     events = Store(root).read_all()
     return monitor.summary(events, replay(events), window=window, threshold=threshold)
@@ -151,6 +166,18 @@ def build_server(root, agent):
         Returns {"error","hint"} on failure.
         """
         return contest(root, agent, target, reason, evidence_id)
+
+    @server.tool()
+    def inquiry_report_usage(input_tokens: int, output_tokens: int,
+                             est_cost: Optional[float] = None,
+                             price_ref: Optional[str] = None) -> dict:
+        """Report your token/cost usage so the human monitor can see spend for this session.
+
+        Monitoring only — inquiry does NOT cap or block your generation (that is the operator's
+        job). est_cost is optional; if given, pass a price_ref label (e.g. the model/price id).
+        Returns {"error","hint"} on invalid input.
+        """
+        return report_usage(root, agent, input_tokens, output_tokens, est_cost, price_ref)
 
     @server.tool()
     def inquiry_status(window: int = 3, threshold: float = 0.5) -> dict:

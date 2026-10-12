@@ -98,3 +98,12 @@ class IngestService:
                          reason=reason, evidence_ids=[evidence_id], evidence_snapshot=None,
                          reopen_if=None, synthesis_target=None)], None
         return self._commit(build)
+
+    def report_usage(self, input_tokens, output_tokens, est_cost=None, price_ref=None):
+        """Report external harness token/cost usage (A4, monitoring only — not the D6 self-run
+        cap). Attributed to this agent session; monitor aggregates it from the event log."""
+        usage = dict(status='known', input_tokens=int(input_tokens), output_tokens=int(output_tokens),
+                     est_cost=est_cost, price_ref=price_ref)
+        def build(state, at):
+            return [dict(kind='AgentUsageReported', usage=usage)], None
+        return self._commit(build)

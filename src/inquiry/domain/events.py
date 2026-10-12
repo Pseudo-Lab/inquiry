@@ -41,6 +41,7 @@ CHANGE_FIELDS = {
     'HypothesisAssessed': frozenset({'kind', 'hypothesis_id', 'run_id', 'assessment'}),
     'ConfidenceUpdated': frozenset({'kind', 'hypothesis_id', 'run_id', 'axis', 'score'}),
     'SpendCapSet': frozenset({'kind', 'max_tokens', 'reason'}),
+    'AgentUsageReported': frozenset({'kind', 'usage'}),
     'ActionCreated': frozenset({'kind', 'action_id', 'hypothesis_id', 'title'}),
     'ActionChecked': frozenset({'kind', 'action_id'}),
     'ActionUnchecked': frozenset({'kind', 'action_id'}),
@@ -285,6 +286,13 @@ def validate_event(event):
                 raise EventValidationError('max_tokens must be a positive integer.')
             if not isinstance(change['reason'], str):
                 raise EventValidationError('reason must be a string.')
+        elif kind == 'AgentUsageReported':
+            try:
+                validate_usage(change['usage'])
+            except ValueError as error:
+                raise EventValidationError(str(error)) from error
+            if change['usage']['status'] != 'known':
+                raise EventValidationError('Reported usage must be known.')
         elif kind in ('HypothesisAssessed', 'ConfidenceUpdated'):
             for key in ('hypothesis_id', 'run_id'):
                 _text(change[key], key)
