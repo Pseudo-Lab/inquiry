@@ -11,6 +11,7 @@ from typing import Literal, Optional
 
 from inquiry.features.ingest.service import IngestService
 from inquiry.domain.events import EVIDENCE_TYPES
+from inquiry.features.assessment.schema import AXES
 from inquiry.domain.replay import replay
 from inquiry.store.store import Store
 from inquiry import monitor
@@ -59,6 +60,37 @@ def add_evidence(root, agent, target, relation, evidence_type, content, retrieve
     return {"evidence_id": eid}
 
 
+def assess(root, agent, target, axis, low, high, rationale, evidence_refs=None, unverified=True):
+    """A2: push one D3 axis estimate (agent-estimate). Structured error on invalid input so the
+    agent can self-correct (the MCP framework drops raised-exception messages)."""
+    try:
+        IngestService(root, agent).assess_axis(
+            target, axis, low, high, rationale, tuple(evidence_refs or ()), unverified)
+    except ValueError as error:
+        return {
+            "error": str(error),
+            "allowed_axes": sorted(AXES),
+            "hint": ("axis must be one of allowed_axes; low<=high in [0,1]; rationale required; "
+                     "evidence_refs must already be linked to the hypothesis. Agent pushes are "
+                     "always 'agent-estimate' and cannot downgrade a human/measured axis."),
+        }
+    return {"ok": True, "target": target, "axis": axis}
+
+
+def contest(root, agent, target, reason, evidence_id):
+    """A2: mark a hypothesis contested (agent-allowed edge). Structured error on invalid input."""
+    try:
+        IngestService(root, agent).contest(target, reason, evidence_id)
+    except ValueError as error:
+        return {
+            "error": str(error),
+            "hint": ("contest is only allowed from exploring/supported (agents cannot refute/close/"
+                     "synthesize — those stay human-only), requires a nonempty reason and an "
+                     "evidence_id already linked to the hypothesis with the 'challenges' relation."),
+        }
+    return {"ok": True, "target": target, "status": "contested"}
+
+
 def status(root, window=3, threshold=0.5):
     events = Store(root).read_all()
     return monitor.summary(events, replay(events), window=window, threshold=threshold)
@@ -95,6 +127,30 @@ def build_server(root, agent):
         On a validation failure the tool returns an ``{"error", "hint", ...}`` dict (not a raise).
         """
         return add_evidence(root, agent, target, relation, evidence_type, content, retrieved_at, uri)
+
+    @server.tool()
+    def inquiry_assess(
+            target: str,
+            axis: Literal["plausibility", "evidence_strength", "novelty", "impact", "testability"],
+            low: float, high: float, rationale: str,
+            evidence_refs: Optional[list] = None, unverified: bool = True) -> dict:
+        """Push your D3 estimate for ONE axis of a hypothesis (as agent-estimate).
+
+        low/high are a [0,1] range (not a point); rationale is required. evidence_refs cite
+        evidence already linked to the hypothesis. Other axes are preserved. You cannot
+        downgrade an axis a human/measurement already scored. Returns {"error","hint"} on failure.
+        """
+        return assess(root, agent, target, axis, low, high, rationale, evidence_refs, unverified)
+
+    @server.tool()
+    def inquiry_contest(target: str, reason: str, evidence_id: str) -> dict:
+        """Mark a hypothesis contested (exploring/supported -> contested) with challenging evidence.
+
+        Agents may contest but not refute/close/synthesize (those stay human-only). Requires a
+        nonempty reason and an evidence_id already linked with the 'challenges' relation.
+        Returns {"error","hint"} on failure.
+        """
+        return contest(root, agent, target, reason, evidence_id)
 
     @server.tool()
     def inquiry_status(window: int = 3, threshold: float = 0.5) -> dict:

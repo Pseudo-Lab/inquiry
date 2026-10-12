@@ -12,6 +12,7 @@ from uuid import uuid4
 
 from inquiry.commands import _hypothesis, _next_id
 from inquiry.domain.replay import replay
+from inquiry.features.assessment.schema import validate_axis, SOURCE_RANK
 from inquiry.store.store import Store, retry_on_contention
 
 
@@ -61,4 +62,39 @@ class IngestService:
                          content=content, uri=uri, retrieved_at=retrieved_at, actor=self.actor),
                     dict(kind='EvidenceLinked', evidence_id=evidence_id,
                          hypothesis_id=target, relation=relation)], evidence_id
+        return self._commit(build)
+
+    def assess_axis(self, target, axis, low, high, rationale, evidence_refs=(), unverified=True):
+        """Push one D3 axis estimate (A2). Always agent-estimate; per-axis ConfidenceUpdated so
+        other axes are preserved. The trust hierarchy (D3) is enforced here: an agent estimate
+        may not overwrite an axis already scored by a human/measured source (no downgrade)."""
+        payload = dict(low=low, high=high, source='agent-estimate',
+                       evidence_refs=list(evidence_refs or ()), unverified=bool(unverified),
+                       rationale=rationale)
+        if validate_axis(payload) is None:    # form: ranges, fields, [0,1], low<=high
+            raise ValueError('Assessment axis requires scored low/high and a rationale.')
+        def build(state, at):
+            node = state.hypotheses.get(target)
+            if node is None:
+                raise ValueError('Hypothesis does not exist.')
+            current = getattr(node.assessment, axis, None) if node.assessment else None
+            if current is not None and SOURCE_RANK.get(current.source, 0) > 0:
+                raise ValueError(f'Cannot downgrade {axis} from {current.source} with an '
+                                 f'agent-estimate (D3 trust hierarchy).')
+            return [dict(kind='ConfidenceUpdated', hypothesis_id=target,
+                         run_id='R-' + uuid4().hex, axis=axis, score=payload)], None
+        return self._commit(build)
+
+    def contest(self, target, reason, evidence_id):
+        """Mark a hypothesis contested (A2). An agent-allowed edge (exploring/supported ->
+        contested, _AGENT_EDGES); terminal decisions stay human-only. Requires a challenges-
+        linked evidence citation (enforced by replay)."""
+        def build(state, at):
+            node = state.hypotheses.get(target)
+            if node is None:
+                raise ValueError('Hypothesis does not exist.')
+            return [dict(kind='HypothesisStateChanged', hypothesis_id=target, **{'from': node.status},
+                         to='contested', trigger='contest', actor=self.actor, at=at,
+                         reason=reason, evidence_ids=[evidence_id], evidence_snapshot=None,
+                         reopen_if=None, synthesis_target=None)], None
         return self._commit(build)
