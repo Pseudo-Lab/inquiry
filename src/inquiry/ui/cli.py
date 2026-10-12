@@ -210,6 +210,11 @@ def main(argv=None, *, adapter=None):
     action.add_parser('check').add_argument('action_id')
     action.add_parser('uncheck').add_argument('action_id')
     subs.add_parser('actions', help='List actions grouped by hypothesis')
+    status_cmd = subs.add_parser('status', help='Monitor summary across the shared inquiry graph')
+    status_cmd.add_argument('--window', type=_positive_int, default=3)
+    status_cmd.add_argument('--threshold', type=_positive_float, default=0.5)
+    mcp_cmd = subs.add_parser('mcp', help='Run the MCP server for harness-agent ingestion (ADR-D12)')
+    mcp_cmd.add_argument('--agent', required=True, help='Session agent name; writes attributed to agent:<name>')
     saturation = subs.add_parser('saturation', help='Saturation signal & near-duplicate hypotheses (§8)')
     saturation.add_argument('--window', type=_positive_int, default=3)
     saturation.add_argument('--threshold', type=_positive_float, default=0.5)
@@ -380,6 +385,10 @@ def main(argv=None, *, adapter=None):
                                 for op in ops}
             run_tui(args.dir, op_factories=op_factories)
             return
+        if args.command == 'mcp':
+            from inquiry.mcp_server import serve
+            serve(args.dir, args.agent)
+            return
         if args.command == 'config':
             from inquiry.config import check_config
             print(json.dumps(check_config(args.dir, model=args.model), ensure_ascii=False, indent=2))
@@ -439,6 +448,14 @@ def main(argv=None, *, adapter=None):
                 for action in sorted(state.actions.values(), key=lambda item: item.id):
                     if action.hypothesis_id == node_id:
                         print(f"  [{'x' if action.done else ' '}] {action.id} {action.title}")
+            return
+        elif args.command == 'status':
+            from inquiry.domain.replay import replay
+            from inquiry.store.store import Store
+            from inquiry import monitor
+            events = Store(args.dir).read_all()
+            report = monitor.summary(events, replay(events), window=args.window, threshold=args.threshold)
+            print(json.dumps(report, ensure_ascii=False, indent=2))
             return
         elif args.command == 'saturation':
             from inquiry.domain.replay import replay

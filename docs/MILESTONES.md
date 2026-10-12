@@ -100,10 +100,12 @@ M0 결정  ─▶  M1a Framing ─┐
 
 > 예상 소요: **~6~8주**
 
+> **2026-10-12 방향 전환([ADR-D12](decisions/ADR-D12-monitor-control-plane.md)):** inquiry를 agent runner에서 **공유 탐구 그래프 + MCP 인제스천 + 멀티에이전트 모니터(control-plane)**로 전환. 가설 생성은 외부 harness 에이전트(Claude Code/Codex)가 하고 inquiry는 모니터링한다. 이로써 "근거 기반 가설 제안"의 리서치 커넥터는 **harness가 담당**(아래 항목 재프레이밍). 진행: D3(confidence)✅·다중 actor(D10)✅·saturation/dedup(D11)✅ 완료, **Phase 1 MCP 인제스천 + `inquiry status` 모니터 착수**.
+
 - **범위:** 컬러 상태 표현, 저속 활동 애니메이션(진짜 heartbeat 기반, §10), 다중 에이전트 actor, evidence·confidence 출처 관리(D3), 사고 포화·중복 감지(§8), `NOW/NEXT/LATER`, Weekly·research note·decision record 템플릿, Git 버전관리, `--no-color`/`--no-animation`/ASCII fallback.
 - **주의 (REVIEW):** saturation/dedup(§8)은 연구 난이도. **단순 휴리스틱으로 시작**하고 임베딩 기반은 점진 도입. 여기서 완벽을 노리지 말 것.
 - **M2 Gate B에서 이관된 항목:**
-  - [ ] **근거 기반 가설 제안** (EXT-S1 Q2·Q4): Framing/branch 제안 시 외부 레퍼런스(실제 기업·유사 서비스 사례, 문헌)를 근거로 가져와 새 방향을 제시. 리서치 커넥터·evidence 모델(D3)·novelty 축(§8)과 정합하게 설계. 선행 가능분(difference 필드 표시·프롬프트 개선으로 가설 차별성 전달 강화)은 분리 착수 가능.
+  - [ ] **근거 기반 가설 제안** (EXT-S1 Q2·Q4): ~~inquiry가 리서치 커넥터로 외부 레퍼런스를 가져와 제시~~ → **D12 재프레이밍:** harness 에이전트가 웹검색으로 외부 레퍼런스를 찾아 `inquiry add_evidence`(external-article, agent 귀속)로 push하고, 그 근거 위에 가설을 제안. inquiry는 evidence 모델(D3, 원칙 2 외부 증거만)·novelty(§8)로 수용·중복검사. 리서치 커넥터를 inquiry가 자체 구현하지 않는다.
   - [ ] **외부인 Framing 검증 2회차**: M2에서 고친 항목(chat 가독성·branch 수락 안내·그래프 연결)의 개선 효과를 다른 참가자로 재측정([프로토콜](reports/m2-gate-b-external-framing-protocol.md) 재사용). 1회차 기준점 Q1·Q6=1점.
 - **Exit 기준:** 외부 사용자가 설치→Framing→탐구→Weekly export를 문서 없이 완주. OSS 공개 가능 수준.
 

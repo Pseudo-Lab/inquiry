@@ -1,9 +1,11 @@
 # ADR-D4 — Agent Adapter 계약
 
-- 상태: **Accepted**
+- 상태: **Accepted** · 2026-10-12 **부분 재해석**([D12](./ADR-D12-monitor-control-plane.md))
 - 작성일: 2026-08-28
 - 확정일: 2026-09-02
 - 관련: PRODUCT-CONCEPT §10 §11 §16 §21.5 · REVIEW 1-④
+
+> **2026-10-12 (D12 방향 전환):** 이 in-process 어댑터 계약은 이제 **self-run 모드 한정**이다. 주력 흐름은 외부 harness 에이전트가 MCP로 산출물을 인제스트하는 것이며, "생성"은 어댑터 밖에서 일어난다. 아래 계약은 self-run 모드에서 그대로 유효.
 
 ## 맥락
 
