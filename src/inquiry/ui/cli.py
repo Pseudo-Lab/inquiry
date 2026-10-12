@@ -216,7 +216,11 @@ def main(argv=None, *, adapter=None):
     monitor_cmd = subs.add_parser('monitor', help='Human-readable live dashboard (control-plane, ADR-D12)')
     monitor_cmd.add_argument('--window', type=_positive_int, default=3)
     monitor_cmd.add_argument('--threshold', type=_positive_float, default=0.5)
-    monitor_cmd.add_argument('--watch', type=_positive_float, help='Refresh every N seconds (live)')
+    monitor_cmd.add_argument('--watch', type=_positive_float, help='Redraw every N seconds (fixed interval)')
+    monitor_cmd.add_argument('--follow', action='store_true',
+                             help='Redraw only when the log changes (near-instant, no idle churn)')
+    monitor_cmd.add_argument('--interval', type=_positive_float, default=0.5,
+                             help='Change-check interval for --follow (default 0.5s)')
     review_cmd = subs.add_parser('review', help='What agent output awaits a human decision (human gate)')
     review_cmd.add_argument('--threshold', type=_positive_float, default=0.5)
     review_cmd.add_argument('--json', action='store_true', help='Emit structured JSON instead of text')
@@ -472,7 +476,20 @@ def main(argv=None, *, adapter=None):
                 events = Store(args.dir).read_all()
                 return monitor.render_text(
                     monitor.summary(events, replay(events), window=args.window, threshold=args.threshold))
-            if args.watch:
+            if args.follow:
+                import time
+                store = Store(args.dir)
+                last = object()
+                try:
+                    while True:
+                        signature = store.signature()
+                        if signature != last:            # redraw only on actual change
+                            print('\033[2J\033[H' + _render(), flush=True)
+                            last = signature
+                        time.sleep(args.interval)
+                except KeyboardInterrupt:
+                    pass
+            elif args.watch:
                 import time
                 try:
                     while True:
