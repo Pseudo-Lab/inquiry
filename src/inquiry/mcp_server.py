@@ -7,9 +7,10 @@ LLM itself. Each session passes its agent name; writes are attributed to ``agent
 The `mcp` package is an optional/lazy dependency (like the OpenAI SDK): the handler
 functions below are plain, testable Python; only ``serve()`` needs `mcp` installed.
 """
-from typing import Optional
+from typing import Literal, Optional
 
 from inquiry.features.ingest.service import IngestService
+from inquiry.domain.events import EVIDENCE_TYPES
 from inquiry.domain.replay import replay
 from inquiry.store.store import Store
 from inquiry import monitor
@@ -39,8 +40,22 @@ def add_hypothesis(root, agent, title, claim, parents=None, assumptions=None, fa
 
 
 def add_evidence(root, agent, target, relation, evidence_type, content, retrieved_at, uri=None):
-    eid = IngestService(root, agent).add_evidence(
-        target, relation, evidence_type, content, retrieved_at, uri)
+    try:
+        eid = IngestService(root, agent).add_evidence(
+            target, relation, evidence_type, content, retrieved_at, uri)
+    except ValueError as error:
+        # The MCP framework collapses a raised exception to an opaque "Error executing tool
+        # inquiry_add_evidence" string (the message is dropped), so a calling agent can't see
+        # *why* it failed and flails. Return the reason as structured output instead — this
+        # path is always surfaced to the caller, so the agent can self-correct.
+        return {
+            "error": str(error),
+            "allowed_evidence_types": sorted(EVIDENCE_TYPES),
+            "allowed_relations": ["supports", "challenges"],
+            "hint": ("evidence_type must be one of allowed_evidence_types (model opinions are "
+                     "not evidence); 'external-article' and 'dataset' also require a source `uri`; "
+                     "`target` must be an existing hypothesis id."),
+        }
     return {"evidence_id": eid}
 
 
@@ -64,10 +79,21 @@ def build_server(root, agent):
         """Propose a hypothesis in the shared inquiry graph (attributed to this agent)."""
         return add_hypothesis(root, agent, title, claim, parents, assumptions, falsified_if)
 
+    # These Literals mirror EVIDENCE_TYPES / the relation whitelist so the allowed values show
+    # up in the tool's input schema (agents pick from them instead of guessing "web"/"url").
+    # test_mcp_and_status guards that the evidence-type Literal stays in sync with EVIDENCE_TYPES.
     @server.tool()
-    def inquiry_add_evidence(target: str, relation: str, evidence_type: str, content: str,
-                            retrieved_at: str, uri: Optional[str] = None) -> dict:
-        """Attach external evidence you found to a hypothesis. relation: supports|challenges."""
+    def inquiry_add_evidence(
+            target: str,
+            relation: Literal["supports", "challenges"],
+            evidence_type: Literal["external-article", "measured-result",
+                                   "human-interview", "human-judgment", "dataset"],
+            content: str, retrieved_at: str, uri: Optional[str] = None) -> dict:
+        """Attach external evidence you found to a hypothesis (model opinions are not evidence).
+
+        relation: supports|challenges. 'external-article' and 'dataset' require a source `uri`.
+        On a validation failure the tool returns an ``{"error", "hint", ...}`` dict (not a raise).
+        """
         return add_evidence(root, agent, target, relation, evidence_type, content, retrieved_at, uri)
 
     @server.tool()
