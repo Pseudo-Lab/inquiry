@@ -5,7 +5,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from inquiry.domain.replay import replay
-from inquiry.store.store import Store
+from inquiry.store.store import Store, retry_on_contention
 
 
 def _next_id(prefix, objects):
@@ -54,18 +54,22 @@ class Commands:
         return replay(Store(self.root).read_all())
 
     def _commit(self, build, allow_new=False):
-        with Store(self.root) as store:
-            state = replay(store.read_all())
-            if not allow_new and state.inquiry is None:
-                raise ValueError('Initialize an inquiry first.')
-            identity = state.inquiry_id or 'I-' + uuid4().hex
-            at = datetime.now(timezone.utc).isoformat()
-            changes, result = build(state, at, identity)
-            event = dict(schema_version=1, event_id=uuid4().hex, seq=state.last_seq + 1,
-                         inquiry_id=identity, actor='human:local', at=at,
-                         type='changes-committed', changes=changes)
-            store.append(event, expected_seq=state.last_seq)
-            return result
+        # Human decisions commit against the same shared graph that agents push into;
+        # retry transient contention so a concurrent agent write does not fail this one.
+        def operation():
+            with Store(self.root) as store:
+                state = replay(store.read_all())
+                if not allow_new and state.inquiry is None:
+                    raise ValueError('Initialize an inquiry first.')
+                identity = state.inquiry_id or 'I-' + uuid4().hex
+                at = datetime.now(timezone.utc).isoformat()
+                changes, result = build(state, at, identity)
+                event = dict(schema_version=1, event_id=uuid4().hex, seq=state.last_seq + 1,
+                             inquiry_id=identity, actor='human:local', at=at,
+                             type='changes-committed', changes=changes)
+                store.append(event, expected_seq=state.last_seq)
+                return result
+        return retry_on_contention(operation)
 
     def initialize(self, seed, frame):
         """Manual bootstrap for the core; not the future Framing approval workflow."""

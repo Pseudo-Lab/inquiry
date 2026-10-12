@@ -12,7 +12,7 @@ from uuid import uuid4
 
 from inquiry.commands import _hypothesis, _next_id
 from inquiry.domain.replay import replay
-from inquiry.store.store import Store
+from inquiry.store.store import Store, retry_on_contention
 
 
 def agent_actor(name):
@@ -31,16 +31,20 @@ class IngestService:
         return replay(Store(self.root).read_all())
 
     def _commit(self, build):
-        with Store(self.root) as store:
-            state = replay(store.read_all())
-            if state.inquiry is None:
-                raise ValueError('Initialize an inquiry first (the human bootstraps it).')
-            at = datetime.now(timezone.utc).isoformat()
-            changes, result = build(state, at)
-            store.append(dict(schema_version=1, event_id=uuid4().hex, seq=state.last_seq + 1,
-                inquiry_id=state.inquiry_id, actor=self.actor, at=at,
-                type='changes-committed', changes=changes), expected_seq=state.last_seq)
-            return result
+        # Agents push concurrently into the shared graph; retry transient contention
+        # so a simultaneous write from another session does not drop this one (ADR-D12).
+        def operation():
+            with Store(self.root) as store:
+                state = replay(store.read_all())
+                if state.inquiry is None:
+                    raise ValueError('Initialize an inquiry first (the human bootstraps it).')
+                at = datetime.now(timezone.utc).isoformat()
+                changes, result = build(state, at)
+                store.append(dict(schema_version=1, event_id=uuid4().hex, seq=state.last_seq + 1,
+                    inquiry_id=state.inquiry_id, actor=self.actor, at=at,
+                    type='changes-committed', changes=changes), expected_seq=state.last_seq)
+                return result
+        return retry_on_contention(operation)
 
     def add_hypothesis(self, title, claim, parents=(), assumptions=(), falsified_if=()):
         """Propose a hypothesis attributed to this agent session."""

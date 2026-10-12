@@ -6,6 +6,7 @@ import fcntl
 import json
 import os
 import threading
+import time
 from pathlib import Path
 
 from inquiry.domain.events import validate_event
@@ -43,6 +44,28 @@ def _unique_object(pairs):
 
 def _invalid_constant(value):
     raise ValueError("Non-finite JSON number")
+
+
+def retry_on_contention(operation, *, attempts=6, base_delay=0.02, max_delay=0.3, sleep=time.sleep):
+    """Run a store-committing operation, retrying transient write contention.
+
+    Only retries pre-write contention — ``StoreBusyError`` (another writer holds the
+    exclusive lock) and ``StoreConflictError`` (the head moved before the append). Each
+    attempt re-enters the writer context and re-reads fresh state, so sequence numbers
+    and derived ids are recomputed correctly. ``StoreError`` from an I/O failure is NOT
+    retried (the write outcome is uncertain). Backoff is exponential, capped.
+    """
+    if attempts < 1:
+        raise ValueError("attempts must be at least 1")
+    delay = base_delay
+    for attempt in range(attempts):
+        try:
+            return operation()
+        except (StoreBusyError, StoreConflictError):
+            if attempt == attempts - 1:
+                raise
+            sleep(delay)
+            delay = min(delay * 2, max_delay)
 
 
 def _sync_directory(path):
