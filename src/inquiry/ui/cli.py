@@ -225,6 +225,8 @@ def main(argv=None, *, adapter=None):
     status_cmd.add_argument('--threshold', type=_positive_float, default=0.5)
     review_cmd = subs.add_parser('review', help='Agent output awaiting a human decision (JSON, machine/orca)')
     review_cmd.add_argument('--threshold', type=_positive_float, default=0.5)
+    plan_cmd = subs.add_parser('plan', help='NOW/NEXT/LATER attention-horizon view (§20; no calendar)')
+    plan_cmd.add_argument('--text', action='store_true', help='Human-readable instead of JSON')
     mcp_cmd = subs.add_parser('mcp', help='Run the MCP server for harness-agent ingestion (ADR-D12)')
     mcp_cmd.add_argument('--agent', required=True, help='Session agent name; writes attributed to agent:<name>')
     saturation = subs.add_parser('saturation', help='Saturation signal & near-duplicate hypotheses (§8)')
@@ -486,6 +488,16 @@ def main(argv=None, *, adapter=None):
             events = Store(args.dir).read_all()
             groups = monitor.review(events, replay(events), threshold=args.threshold)
             print(json.dumps(groups, ensure_ascii=False, indent=2))
+            return
+        elif args.command == 'plan':
+            from inquiry.domain.replay import replay
+            from inquiry.store.store import Store
+            from inquiry import monitor
+            groups = monitor.plan(replay(Store(args.dir).read_all()))
+            if args.text:
+                print(monitor.render_plan_text(groups))
+            else:
+                print(json.dumps(groups, ensure_ascii=False, indent=2))
             return
         elif args.command == 'saturation':
             from inquiry.domain.replay import replay

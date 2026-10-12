@@ -7,6 +7,7 @@ Pure — no mutation, no provider calls.
 from datetime import datetime, timezone
 
 from inquiry import saturation
+from inquiry.weekly import STATUS_LABELS  # 공유 상태 라벨(weekly는 datetime만 import — 순환 없음)
 
 
 def agent_activity(events):
@@ -175,5 +176,57 @@ def review(events, state, threshold=0.5):
             item['suggested_actions'] = ['support', 'refute', 'synthesize', 'continue']
             groups['resolve'].append(item)
     return groups
+
+
+# NOW/NEXT/LATER — an attention-horizon lens derived purely from hypothesis status, NOT a
+# calendar/sprint tool (PRODUCT-CONCEPT §20: no dates, deadlines or priority numbers). Every
+# non-terminal hypothesis surfaces in exactly one bucket (via its open actions, or itself when
+# it has none); terminal hypotheses (refuted/human-closed/synthesized) are excluded entirely.
+PLAN_BUCKETS = {
+    'now': ('exploring', 'contested'),
+    'next': ('suggested', 'supported'),
+    'later': ('suspended',),
+}
+_STATUS_BUCKET = {status: bucket for bucket, states in PLAN_BUCKETS.items() for status in states}
+
+
+def plan(state):
+    """Group open actions and attention-needing hypotheses into NOW/NEXT/LATER (state-only)."""
+    open_by_hyp = {}
+    for action in state.actions.values():
+        if not action.done:
+            open_by_hyp.setdefault(action.hypothesis_id, []).append(action)
+    groups = {'now': [], 'next': [], 'later': []}
+    for hypothesis in state.hypotheses.values():
+        bucket = _STATUS_BUCKET.get(hypothesis.status)
+        if bucket is None:        # terminal — excluded (its open actions too)
+            continue
+        open_actions = open_by_hyp.get(hypothesis.id, [])
+        if open_actions:
+            for action in open_actions:
+                groups[bucket].append(dict(kind='action', id=action.id, title=action.title,
+                                           hypothesis_id=hypothesis.id, status=hypothesis.status))
+        else:
+            groups[bucket].append(dict(kind='hypothesis', id=hypothesis.id, title=hypothesis.title,
+                                       hypothesis_id=hypothesis.id, status=hypothesis.status))
+    return groups
+
+
+def render_plan_text(groups):
+    """Human-readable NOW/NEXT/LATER view; empty buckets show '(없음)'."""
+    lines = []
+    for bucket in ('now', 'next', 'later'):
+        lines.append(bucket.upper())
+        items = groups[bucket]
+        if not items:
+            lines.append('  (없음)')
+            continue
+        for item in items:
+            label = STATUS_LABELS.get(item['status'], item['status'])
+            if item['kind'] == 'action':
+                lines.append(f"  [{item['id']}] {item['title']} ({item['hypothesis_id']} {label})")
+            else:
+                lines.append(f"  {item['id']} {item['title']} ({label})")
+    return '\n'.join(lines)
 
 
