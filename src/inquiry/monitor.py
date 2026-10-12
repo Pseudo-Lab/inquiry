@@ -4,7 +4,24 @@ Aggregates the event log + state projection into a status snapshot: hypotheses b
 state, contributing agents, saturation signal, near-duplicates, and recent activity.
 Pure — no mutation, no provider calls.
 """
+from datetime import datetime, timezone
+
 from inquiry import saturation
+
+
+def agent_activity(events):
+    """agent:<name> -> ISO timestamp of its latest event.
+
+    A recency proxy for "which session is working now" (true connected-but-idle
+    presence needs a heartbeat/lease — deferred to M4). Events are append-only in
+    seq order, so the last write per agent is its latest activity.
+    """
+    out = {}
+    for event in events:
+        actor = event.get('actor', '')
+        if str(actor).startswith('agent:'):
+            out[actor] = event['at']
+    return out
 
 
 def summary(events, state, window=3, threshold=0.5, recent=10):
@@ -24,6 +41,7 @@ def summary(events, state, window=3, threshold=0.5, recent=10):
         saturation=saturation.compute_saturation(events, window),
         duplicates=saturation.find_near_duplicates(state, threshold),
         recent_activity=activity,
+        agent_last_seen=agent_activity(events),
     )
 
 
@@ -88,11 +106,40 @@ def duplicate_peers(duplicates, hid):
     return peers
 
 
-def control_summary_text(data):
-    """One-line control-plane summary for the TUI summary bar (from summary())."""
+def _relative(seconds):
+    if seconds < 5:
+        return "방금"
+    if seconds < 60:
+        return f"{int(seconds)}s"
+    if seconds < 3600:
+        return f"{int(seconds // 60)}m"
+    if seconds < 86400:
+        return f"{int(seconds // 3600)}h"
+    return f"{int(seconds // 86400)}d"
+
+
+def _agent_recency(agent, seen, now, active_window):
+    """'claude-1 ●방금' / 'codex-2 ○4m' — ● when active within the window, else ○."""
+    name = agent.split(':', 1)[-1]
+    at = seen.get(agent)
+    if not at:
+        return name
+    delta = (now - datetime.fromisoformat(at.replace('Z', '+00:00'))).total_seconds()
+    marker = '●' if delta <= active_window else '○'
+    return f"{name} {marker}{_relative(delta)}"
+
+
+def control_summary_text(data, now=None, active_window=30):
+    """One-line control-plane summary for the TUI summary bar (from summary()).
+
+    Agents carry a recency marker so you can see which session is working now: ●
+    when it acted within active_window seconds (default 30s), ○ when idle.
+    """
     sat = data['saturation']
     sat_txt = '⚠ SATURATED' if sat['saturated'] else 'saturation ok'
-    agents = ', '.join(a.split(':', 1)[1] for a in data['agents']) or '—'
+    now = now or datetime.now(timezone.utc)
+    seen = data.get('agent_last_seen', {})
+    agents = ', '.join(_agent_recency(a, seen, now, active_window) for a in data['agents']) or '—'
     return (f"{data['hypotheses']} hypotheses · agents: {agents} · "
             f"{sat_txt} · dup {len(data['duplicates'])}")
 
