@@ -32,6 +32,9 @@ from textual.widgets import Footer, Header, Input, Static
 from inquiry.commands import Commands
 from inquiry.ui.graphlog import graph_rows
 from inquiry.features.operation.service import OperationsService
+from inquiry.store.store import Store
+from inquiry.domain.replay import replay
+from inquiry import monitor
 
 SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"   # 모델 연산 실행 중 애니메이션 프레임
 
@@ -212,19 +215,39 @@ class InquiryTUI(App):
         padding: 0 1;
         background: $panel;
     }
+    #summary { height: 1; color: $accent; padding: 0 1; }
     #status { height: 1; color: $text-muted; padding: 0 1; }
     #cmd { dock: bottom; border: tall $accent; }
     """
     BINDINGS = [
         Binding("q", "quit", "Quit"),
         Binding("escape", "cancel_op", "취소"),
+        Binding("n", "next_pending", "다음 결정대기"),
     ]
 
-    def __init__(self, root, op_factories=None):
+    def action_next_pending(self):
+        """결정 대기(triage/decide/resolve) 노드로 순환 이동. 결정은 CLI로."""
+        pending_ids = {item['id'] for items in self._review.values() for item in items}
+        if not pending_ids or not self.nodes:
+            self._set_status("결정 대기 노드가 없습니다.")
+            return
+        total = len(self.nodes)
+        for offset in range(1, total + 1):
+            index = (self.sel + offset) % total
+            if self.nodes[index].id in pending_ids:
+                self._rebuild_table(select=index)
+                label = monitor.pending_label(self.nodes[index].id, self._review)
+                self._set_status(f"{self.nodes[index].id} · {label[0]} — 결정은 CLI "
+                                 f"(inquiry {label[1][0]} {self.nodes[index].id} …)")
+                return
+
+    def __init__(self, root, op_factories=None, follow=True):
         super().__init__()
         self.root = root
         # op_factories: {operation: adapter_factory()->(adapter, model)}. None → 실행 불가(읽기).
         self.op_factories = op_factories or {}
+        self.follow = follow           # 외부 push 실시간 반영(폴링). CLI --no-follow로 끔.
+        self._last_sig = None          # 마지막으로 반영한 로그 signature
         self.pending = None            # 사람 승인 대기 중인 proposal
         self.pending_kind = None       # 'op' | 'branch'
         self.marked = set()            # synthesize 대상으로 표시한 가설 ID
@@ -235,8 +258,42 @@ class InquiryTUI(App):
         self._spin_label = ""
         self._reload_state()
 
+    def _paused(self):
+        """폴링 일시중지 조건 — 사람 조작 중엔 화면을 갱신하지 않는다."""
+        if self.pending is not None:
+            return True
+        if self._op_worker is not None and not self._op_worker.is_finished:
+            return True
+        try:
+            if self.query_one("#cmd", Input).has_focus:
+                return True
+        except Exception:
+            pass
+        return False
+
+    def _poll(self):
+        """로그 변경 시에만 리로드·재렌더(선택은 id 기준 보존). 테스트가 직접 호출 가능."""
+        if self._paused():
+            return
+        signature = Store(self.root).signature()
+        if signature == self._last_sig:
+            return
+        self._last_sig = signature
+        keep = self._current_hid
+        self._reload_state()
+        select = None
+        if keep is not None:
+            select = next((i for i, n in enumerate(self.nodes) if n.id == keep), None)
+        self._rebuild_table(select=select)  # None이면 기존 인덱스 clamp(사라진 노드 fallback)
+
     def _reload_state(self):
-        self.state = Commands(self.root).state()
+        # Load raw events too: proposing-agent attribution and saturation need them
+        # (assessment and near-duplicates come from the state projection). One replay.
+        self.events = Store(self.root).read_all()
+        self.state = replay(self.events)
+        self._creators = monitor._creators(self.events)
+        self._summary = monitor.summary(self.events, self.state)
+        self._review = monitor.review(self.events, self.state)
         real = _order(self.state)
         if real:
             # scale.py처럼 맨 위에 ROOT(탐구 자체)를 두고, 루트 가설들이 여기서 분기.
@@ -252,6 +309,7 @@ class InquiryTUI(App):
             with VerticalScroll(id="mapwrap"):
                 yield GraphView(id="map")
             yield Static("", id="details")
+        yield Static("", id="summary")
         yield Static(HELP, id="status")
         yield IMEInput(placeholder="명령 (: 로 포커스)", id="cmd")
         yield Footer()
@@ -264,6 +322,9 @@ class InquiryTUI(App):
         self.query_one("#details").border_title = "Details"
         self._rebuild_table(select=1 if len(self.nodes) > 1 else 0)
         self.query_one("#map", GraphView).focus()
+        self._last_sig = Store(self.root).signature()   # 현재까지 반영됨
+        if self.follow:
+            self.set_interval(0.5, self._poll)           # 외부 push 실시간 반영
 
     def _rebuild_table(self, select=None):
         if select is not None:
@@ -277,6 +338,7 @@ class InquiryTUI(App):
         self.sel = max(0, min(self.sel, len(self.nodes) - 1))
         table, sel_line = self._build_table()
         gv.update(table)
+        self._update_summary()
         self._show(self.nodes[self.sel].id)
         # 대규모 그래프에서 선택이 뷰포트 밖으로 나가는 문제(m1b 18페이지 문제의
         # TUI 버전): 렌더 후 선택 행이 보이도록 지도 스크롤을 따라 붙인다.
@@ -334,9 +396,19 @@ class InquiryTUI(App):
                 sym, label = STATUS.get(h.status, ('?', h.status))
                 status_cell = Text(f"{sym} {label}",
                                    style=STATUS_STYLE.get(h.status, 'white'))
+            title = Text(("▸ " if selected else "  ") + h.title)
+            if h.id not in ('ROOT',):
+                agent = self._creators.get(h.id)
+                if agent:
+                    title.append(f"  {agent.split(':', 1)[-1]}", style="grey50")
+                if monitor.duplicate_peers(self._summary['duplicates'], h.id):
+                    title.append("  ⚠dup", style="yellow")
+                pending = monitor.pending_label(h.id, self._review)
+                if pending:
+                    title.append(f"  ◀{pending[0]}", style="bold magenta")
             t.add_row(self._node_cell(row['cells'], row['col'], glyph, marked),
                       Text('' if h.id == 'ROOT' else h.id),
-                      Text(("▸ " if selected else "  ") + h.title),
+                      title,
                       status_cell,   # 상태 기호·색은 STATUS 열에만
                       style=("on grey30" if selected else None))
             data_row += 1
@@ -385,7 +457,29 @@ class InquiryTUI(App):
             return
         h = self.state.hypotheses.get(hid)
         if h is not None:
-            self.query_one("#details", Static).update(_detail_text(h, self.state))
+            self.query_one("#details", Static).update(self._detail(h))
+
+    def _detail(self, h):
+        """Base detail + control-plane block (proposing agent, confidence, dup, gate)."""
+        text = _detail_text(h, self.state)
+        extra = []
+        agent = self._creators.get(h.id)
+        if agent:
+            extra.append(f"[b]제안[/b] {agent}")
+        conf = monitor.assessment_summary(h)
+        if conf:
+            extra.append(f"[b]confidence[/b] {conf}")
+        peers = monitor.duplicate_peers(self._summary['duplicates'], h.id)
+        if peers:
+            extra.append(f"[b]⚠ 중복 유사[/b] {', '.join(peers)}")
+        pending = monitor.pending_label(h.id, self._review)
+        if pending:
+            extra.append(f"[b]⟶ 결정 대기[/b] {pending[0]}: {' / '.join(pending[1])}")
+        return text + ("\n" + "\n".join(extra) if extra else "")
+
+    def _update_summary(self):
+        self.query_one("#summary", Static).update(
+            monitor.control_summary_text(self._summary) if self.nodes else "")
 
     def _set_status(self, text):
         self.query_one("#status", Static).update(text)
@@ -703,5 +797,5 @@ class InquiryTUI(App):
         self._set_status("제안 거부됨")
 
 
-def run_tui(root, op_factories=None):
-    InquiryTUI(root, op_factories=op_factories).run()
+def run_tui(root, op_factories=None, follow=True):
+    InquiryTUI(root, op_factories=op_factories, follow=follow).run()

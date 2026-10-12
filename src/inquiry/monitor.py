@@ -4,7 +4,24 @@ Aggregates the event log + state projection into a status snapshot: hypotheses b
 state, contributing agents, saturation signal, near-duplicates, and recent activity.
 Pure — no mutation, no provider calls.
 """
+from datetime import datetime, timezone
+
 from inquiry import saturation
+
+
+def agent_activity(events):
+    """agent:<name> -> ISO timestamp of its latest event.
+
+    A recency proxy for "which session is working now" (true connected-but-idle
+    presence needs a heartbeat/lease — deferred to M4). Events are append-only in
+    seq order, so the last write per agent is its latest activity.
+    """
+    out = {}
+    for event in events:
+        actor = event.get('actor', '')
+        if str(actor).startswith('agent:'):
+            out[actor] = event['at']
+    return out
 
 
 def summary(events, state, window=3, threshold=0.5, recent=10):
@@ -24,53 +41,107 @@ def summary(events, state, window=3, threshold=0.5, recent=10):
         saturation=saturation.compute_saturation(events, window),
         duplicates=saturation.find_near_duplicates(state, threshold),
         recent_activity=activity,
+        agent_last_seen=agent_activity(events),
     )
 
 
-_STATUS_ORDER = ('suggested', 'exploring', 'supported', 'contested',
-                 'suspended', 'refuted', 'synthesized', 'human-closed')
-
-
-def render_text(data) -> str:
-    """Human-readable control-plane dashboard from a `summary()` dict."""
-    if not data.get('inquiry_id'):
-        return 'No inquiry yet — the human bootstraps it with `inquiry init`.'
-    lines = [f"Inquiry {data['inquiry_id']}  —  {data['hypotheses']} hypotheses"]
-
-    by_status = data['by_status']
-    ordered = [name for name in _STATUS_ORDER if name in by_status]
-    ordered += [name for name in by_status if name not in _STATUS_ORDER]
-    status_line = ' · '.join(f'{name} {by_status[name]}' for name in ordered) or '(none)'
-    lines.append(f"Status:  {status_line}")
-    lines.append(f"Agents:  {', '.join(data['agents']) or '(none)'}")
-
-    sat = data['saturation']
-    if sat['saturated']:
-        lines.append(f"Saturation:  ⚠ SATURATED — {'; '.join(sat['reasons'])}")
-    else:
-        lines.append(f"Saturation:  ok (runs {sat['runs_in_window']}/{sat['window']}, "
-                     f"new-info {sat['new_info']})")
-
-    dups = data['duplicates']
-    lines.append(f"Near-duplicates ({len(dups)}):"
-                 + ('' if dups else ' none'))
-    for dup in dups:
-        lines.append(f"  - {dup['a']} ~ {dup['b']}  ({dup['score']})")
-
-    lines.append("Recent:" + ('' if data['recent_activity'] else ' (no activity)'))
-    for entry in data['recent_activity']:
-        lines.append(f"  seq {entry['seq']:>3}  {entry['actor']:<18} {', '.join(entry['kinds'])}")
-    return '\n'.join(lines)
+# Human-readable rendering now lives in the TUI (ADR-D12); `status`/`review` emit JSON for
+# machines/orca. The pure aggregation (`summary`/`review`/`_creators`/control-plane helpers)
+# below is shared by both.
 
 
 def _creators(events):
-    """Map hypothesis_id -> the actor whose event created it."""
+    """Map hypothesis_id -> the actor whose event created it (needs raw events)."""
     out = {}
     for event in events:
         for change in event['changes']:
             if change.get('kind') == 'HypothesisCreated':
                 out[change['hypothesis_id']] = event['actor']
     return out
+
+
+# --- Pure control-plane helpers for the TUI (data source noted per function) ---
+
+_AXIS_SHORT = (('plausibility', 'plaus'), ('evidence_strength', 'evid'),
+               ('novelty', 'novel'), ('impact', 'impact'), ('testability', 'test'))
+
+
+def assessment_summary(hypothesis):
+    """One-line confidence ranges from `hypothesis.assessment` (state), or None if unscored."""
+    assessment = getattr(hypothesis, 'assessment', None)
+    if assessment is None:
+        return None
+    parts = []
+    for name, short in _AXIS_SHORT:
+        axis = getattr(assessment, name, None)
+        if axis is not None:
+            parts.append(f"{short} [{axis.low}–{axis.high}]")
+    return '  '.join(parts) if parts else None
+
+
+_GATE_LABELS = {'triage': 'TRIAGE', 'decide': 'DECIDE', 'resolve': 'RESOLVE'}
+
+
+def pending_label(hid, review_groups):
+    """(GROUP, actions) if the hypothesis awaits a human decision, else None.
+
+    review_groups = review(events, state). Decisions themselves stay in the CLI; this
+    only surfaces where a human judgment is due.
+    """
+    for key, items in review_groups.items():
+        for item in items:
+            if item['id'] == hid:
+                return (_GATE_LABELS[key], item['suggested_actions'])
+    return None
+
+
+def duplicate_peers(duplicates, hid):
+    """Ids near-duplicate to hid, from a find_near_duplicates() list."""
+    peers = []
+    for pair in duplicates:
+        if pair['a'] == hid:
+            peers.append(pair['b'])
+        elif pair['b'] == hid:
+            peers.append(pair['a'])
+    return peers
+
+
+def _relative(seconds):
+    if seconds < 5:
+        return "방금"
+    if seconds < 60:
+        return f"{int(seconds)}s"
+    if seconds < 3600:
+        return f"{int(seconds // 60)}m"
+    if seconds < 86400:
+        return f"{int(seconds // 3600)}h"
+    return f"{int(seconds // 86400)}d"
+
+
+def _agent_recency(agent, seen, now, active_window):
+    """'claude-1 ●방금' / 'codex-2 ○4m' — ● when active within the window, else ○."""
+    name = agent.split(':', 1)[-1]
+    at = seen.get(agent)
+    if not at:
+        return name
+    delta = (now - datetime.fromisoformat(at.replace('Z', '+00:00'))).total_seconds()
+    marker = '●' if delta <= active_window else '○'
+    return f"{name} {marker}{_relative(delta)}"
+
+
+def control_summary_text(data, now=None, active_window=30):
+    """One-line control-plane summary for the TUI summary bar (from summary()).
+
+    Agents carry a recency marker so you can see which session is working now: ●
+    when it acted within active_window seconds (default 30s), ○ when idle.
+    """
+    sat = data['saturation']
+    sat_txt = '⚠ SATURATED' if sat['saturated'] else 'saturation ok'
+    now = now or datetime.now(timezone.utc)
+    seen = data.get('agent_last_seen', {})
+    agents = ', '.join(_agent_recency(a, seen, now, active_window) for a in data['agents']) or '—'
+    return (f"{data['hypotheses']} hypotheses · agents: {agents} · "
+            f"{sat_txt} · dup {len(data['duplicates'])}")
 
 
 def review(events, state, threshold=0.5):
@@ -106,27 +177,3 @@ def review(events, state, threshold=0.5):
     return groups
 
 
-_REVIEW_HEADERS = (
-    ('triage', 'Triage (agent-proposed, decide to start or close)'),
-    ('decide', 'Decide (exploring with evidence — support / contest / refute)'),
-    ('resolve', 'Resolve (contested — needs human resolution)'),
-)
-
-
-def render_review(groups) -> str:
-    """Human-readable triage surface from a `review()` dict."""
-    if not any(groups.values()):
-        return 'Nothing awaits a human decision.'
-    lines = []
-    for key, header in _REVIEW_HEADERS:
-        items = groups[key]
-        if not items:
-            continue
-        lines.append(f"{header}  [{len(items)}]")
-        for item in items:
-            flag = ' ⚠dup' if item['near_duplicate'] else ''
-            by = f" by {item['proposed_by']}" if item['proposed_by'] else ''
-            lines.append(f"  {item['id']} [{item['status']}]{by}  evidence={len(item['evidence'])}{flag}")
-            lines.append(f"      {item['claim']}")
-            lines.append(f"      → {' / '.join(item['suggested_actions'])}")
-    return '\n'.join(lines)
