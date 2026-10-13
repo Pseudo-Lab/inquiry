@@ -3,6 +3,7 @@ import argparse
 from dataclasses import asdict
 import json
 import math
+import os
 from pathlib import Path
 import re
 import sys
@@ -137,7 +138,8 @@ def main(argv=None, *, adapter=None):
     parser = argparse.ArgumentParser(
         description='Local Inquiry core with explicit human decisions and lazy provider generation.'
     )
-    parser.add_argument('--dir', default='.', help='Inquiry directory')
+    parser.add_argument('--dir', default=os.environ.get('INQUIRY_DIR', '.'),
+                        help='Inquiry directory (default: $INQUIRY_DIR or current dir)')
     subs = parser.add_subparsers(dest='command', required=True)
     chat = subs.add_parser('chat', help='Interactive framing without copying IDs')
     _generation_options(chat)

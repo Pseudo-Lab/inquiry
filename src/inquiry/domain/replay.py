@@ -287,8 +287,10 @@ def replay(events):
                     raise ReplayError('Usage reports must be attributed to an agent.', line)
             elif change['kind'] in ('BootstrapSeeded', 'BootstrapFrameProposed',
                                     'BootstrapAccepted', 'BootstrapRejected'):
-                # A5: pre-inquiry bootstrap. Human seeds + accepts/rejects; the agent proposes a
-                # frame. The topic (seed) is always human-thrown; the agent may not create an inquiry.
+                # A5 pre-inquiry bootstrap. A topic can be seeded by a human (`inquiry seed`) OR
+                # proposed by an agent (inquiry_propose_bootstrap: seed+frame in one step). Either
+                # way the human GATE is acceptance — only a human accepts/rejects, so an agent can
+                # never create an inquiry on its own (the invariant that matters).
                 bid = change['bootstrap_id']
                 role, _, name = event['actor'].partition(':')
                 is_human = role == 'human' and bool(name.strip())
@@ -296,8 +298,8 @@ def replay(events):
                 if kind == 'BootstrapSeeded':
                     if inquiry is not None:
                         raise ReplayError('Seed a topic before the inquiry exists.', line)
-                    if not is_human:
-                        raise ReplayError('A human throws the seed topic.', line)
+                    if not (is_human or is_agent_actor(event['actor'])):
+                        raise ReplayError('Seed must be from a human or an agent.', line)
                     if bid in bootstraps:
                         raise ReplayError('Duplicate bootstrap id.', line)
                     bootstraps[bid] = dict(id=bid, seed=change['seed'], frame=None,

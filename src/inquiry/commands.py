@@ -80,8 +80,9 @@ class Commands:
         return self._commit(build, allow_new=True)
 
     def seed_topic(self, seed):
-        """A5: a human throws a topic to bootstrap a shared inquiry; an agent then proposes a
-        frame (inquiry_propose_frame) and the human accepts. The seed is always human-originated."""
+        """A human throws a topic to bootstrap a shared inquiry; an agent then proposes a frame
+        (inquiry_propose_frame) and the human accepts. An agent may also draft the whole bootstrap
+        (inquiry_propose_bootstrap); either way the human still accepts to create the inquiry."""
         def build(state, at, identity):
             if state.inquiry is not None:
                 raise ValueError('Inquiry already initialized.')

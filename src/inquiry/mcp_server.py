@@ -140,6 +140,32 @@ def report_usage(root, agent, input_tokens, output_tokens, est_cost=None, price_
     return {"ok": True, "input_tokens": int(input_tokens), "output_tokens": int(output_tokens)}
 
 
+def _assemble_frame(central_question, purpose, criteria, scope_include, scope_exclude):
+    return {
+        'central_question': central_question,
+        'purpose': purpose,
+        'criteria': list(criteria or ()),
+        'scope': {'include': list(scope_include or ()), 'exclude': list(scope_exclude or ())},
+    }
+
+
+def propose_bootstrap(root, agent, seed, central_question, purpose='', criteria=None,
+                      scope_include=None, scope_exclude=None):
+    """Draft a whole bootstrap (topic + frame) in one step for a human to accept in the TUI.
+    Structured error on invalid input (e.g. an inquiry already exists, or empty seed/question)."""
+    frame = _assemble_frame(central_question, purpose, criteria, scope_include, scope_exclude)
+    try:
+        bid = IngestService(root, agent).propose_bootstrap(seed, frame)
+    except ValueError as error:
+        return {
+            "error": str(error),
+            "hint": ("seed (the human-facing topic) and central_question are required. This drafts "
+                     "a proposal; a human accepts it in the TUI (`accept <BT-id>`) to create the "
+                     "inquiry. You cannot create the inquiry yourself."),
+        }
+    return {"ok": True, "bootstrap_id": bid, "status": "proposed"}
+
+
 def propose_frame(root, agent, bootstrap_id, central_question, purpose='', criteria=None,
                   scope_include=None, scope_exclude=None):
     """A5: propose a structured frame for a human-seeded topic. Structured error on invalid input
@@ -173,9 +199,10 @@ def status(root, window=3, threshold=0.5):
             "bootstraps": [dict(id=b['id'], seed=b['seed'], status=b['status'],
                                 has_frame=b['frame'] is not None, proposed_by=b['proposed_by'])
                            for b in state.bootstraps.values()],
-            "hint": ("No inquiry yet. A human seeds a topic (`inquiry seed <topic>`); you may then "
-                     "propose a frame for a seeded bootstrap via inquiry_propose_frame; a human "
-                     "accepts it to create the inquiry."),
+            "hint": ("No inquiry yet. Draft a whole bootstrap (topic + frame) from the discussion "
+                     "with inquiry_propose_bootstrap; a human then accepts it in the TUI to create "
+                     "the inquiry. (Or a human seeds first with `inquiry seed <topic>` and you add "
+                     "a frame via inquiry_propose_frame.) You cannot create the inquiry yourself."),
         }
     return monitor.summary(events, state, window=window, threshold=threshold)
 
@@ -256,6 +283,21 @@ def build_server(root, agent):
         return append_activity(root, agent, 'inquiry_report_usage',
             {'input_tokens': input_tokens, 'output_tokens': output_tokens},
             report_usage(root, agent, input_tokens, output_tokens, est_cost, price_ref))
+
+    @server.tool(structured_output=True)
+    def inquiry_propose_bootstrap(
+            seed: str, central_question: str, purpose: str = "",
+            criteria: Optional[list] = None,
+            scope_include: Optional[list] = None, scope_exclude: Optional[list] = None) -> dict[str, Any]:
+        """Draft a WHOLE bootstrap (topic + frame) from the discussion so a human can accept it in
+        the TUI without typing the topic. Use this to start a brand-new inquiry: `seed` is the
+        human-facing topic, `central_question` the framed question. A human accepts it (`accept
+        <BT-id>`) to create the inquiry — you cannot create it yourself. Returns {"error","hint"}.
+        """
+        return append_activity(root, agent, 'inquiry_propose_bootstrap',
+            {'seed': seed, 'central_question': central_question},
+            propose_bootstrap(root, agent, seed, central_question, purpose,
+                              criteria, scope_include, scope_exclude))
 
     @server.tool(structured_output=True)
     def inquiry_propose_frame(

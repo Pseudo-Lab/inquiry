@@ -109,8 +109,8 @@ class IngestService:
         return self._commit(build)
 
     def propose_frame(self, bootstrap_id, frame):
-        """A5: propose a structured frame for a human-seeded topic (pre-inquiry). The human then
-        accepts to create the inquiry. The agent cannot create the inquiry or invent the seed."""
+        """A5: propose a structured frame for an already-seeded topic (pre-inquiry). The human then
+        accepts to create the inquiry. The agent cannot create the inquiry (accept is human-only)."""
         if not isinstance(frame, dict):
             raise ValueError('frame must be an object.')
         def build(state, at):
@@ -118,7 +118,23 @@ class IngestService:
                 raise ValueError('Inquiry already initialized.')
             boot = state.bootstraps.get(bootstrap_id)
             if boot is None or boot['status'] not in ('seeded', 'rejected'):
-                raise ValueError('Frame proposal requires a human-seeded topic '
-                                 '(a human must run `inquiry seed <topic>` first).')
+                raise ValueError('Frame proposal requires a seeded topic '
+                                 '(seed one with `inquiry seed <topic>` or inquiry_propose_bootstrap).')
             return [dict(kind='BootstrapFrameProposed', bootstrap_id=bootstrap_id, frame=frame)], bootstrap_id
+        return self._commit(build, allow_new=True)
+
+    def propose_bootstrap(self, seed, frame):
+        """Propose a whole bootstrap (seed topic + frame) in one step, so a human can accept it in
+        the TUI without typing the topic. Reduces friction while keeping the human gate: the agent
+        drafts, the human still accepts to create the inquiry (accept stays human-only)."""
+        if not isinstance(frame, dict):
+            raise ValueError('frame must be an object.')
+        if not isinstance(seed, str) or not seed.strip():
+            raise ValueError('seed topic must be a nonempty string.')
+        def build(state, at):
+            if state.inquiry is not None:
+                raise ValueError('Inquiry already initialized.')
+            bid = 'BT-' + uuid4().hex
+            return [dict(kind='BootstrapSeeded', bootstrap_id=bid, seed=seed),
+                    dict(kind='BootstrapFrameProposed', bootstrap_id=bid, frame=frame)], bid
         return self._commit(build, allow_new=True)
