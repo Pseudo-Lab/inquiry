@@ -293,6 +293,7 @@ class InquiryTUI(App):
         self.pending = None            # 사람 승인 대기 중인 proposal
         self.pending_kind = None       # 'op' | 'branch'
         self._decision = None          # 진행 중인 결정 입력 마법사 상태(A1)
+        self.bootstraps = []           # pre-inquiry 대기 bootstrap 제안(사람 accept 대기)
         self.marked = set()            # synthesize 대상으로 표시한 가설 ID
         self.sel = 0                   # 선택된 노드 인덱스
         self._op_worker = None
@@ -351,6 +352,10 @@ class InquiryTUI(App):
         self._creators = monitor._creators(self.events)
         self._summary = monitor.summary(self.events, self.state)
         self._review = monitor.review(self.events, self.state)
+        # Pre-inquiry: bootstrap proposals (seed+frame) awaiting the human's accept (friction-free
+        # bootstrap — the agent drafts, the human accepts here to create the inquiry).
+        self.bootstraps = [b for b in self.state.bootstraps.values()
+                           if b['status'] in ('seeded', 'proposed')]
         real = _order(self.state)
         if real:
             # scale.py처럼 맨 위에 ROOT(탐구 자체)를 두고, 루트 가설들이 여기서 분기.
@@ -391,15 +396,56 @@ class InquiryTUI(App):
             self.sel = select
         gv = self.query_one("#map", GraphView)
         if not self.nodes:
-            gv.update(Text("이 탐구에는 아직 가설이 없습니다. framing으로 프레임을 승인하세요.",
-                           style="grey62"))
-            self.query_one("#details", Static).update("아직 가설이 없습니다.")
+            if self.state.inquiry is None and self.bootstraps:
+                self._render_bootstraps(gv)       # 아직 inquiry 없음 — 대기 제안을 보여주고 사람이 accept
+            elif self.state.inquiry is None:
+                gv.update(Text("아직 inquiry가 없습니다. 에이전트가 주제를 제안하면(또는 `inquiry seed`) "
+                               "여기서 accept할 수 있습니다.", style=self._st("grey62")))
+                self.query_one("#details", Static).update("대기 중인 제안이 없습니다.")
+            else:
+                gv.update(Text("이 탐구에는 아직 가설이 없습니다. 에이전트가 가설을 push하면 보입니다.",
+                               style=self._st("grey62")))
+                self.query_one("#details", Static).update("아직 가설이 없습니다.")
             return
         self.sel = max(0, min(self.sel, len(self.nodes) - 1))
         table, sel_line = self._build_table()
         gv.update(table)
         self._update_summary()
         self._show(self.nodes[self.sel].id)
+        return self._after_build(sel_line)
+
+    def _render_bootstraps(self, gv):
+        """Pre-inquiry: list bootstrap proposals (seed + framed question) for the human to accept.
+        A non-selectable list — the human acts with `accept <BT-id>` / `reject <BT-id>` by id."""
+        t = Table(box=box.ROUNDED, expand=True, pad_edge=False, padding=(0, 1),
+                  border_style=self._st("grey42"), header_style=self._st("bold bright_cyan"),
+                  title="시작 대기 — 에이전트 제안(사람이 accept하면 inquiry 생성)",
+                  title_justify="left", title_style=self._st("bold cyan"))
+        t.add_column("ID", no_wrap=True, style=self._st("grey74"))
+        t.add_column("주제(seed)", ratio=1)
+        t.add_column("중심 질문", ratio=1)
+        t.add_column("상태", no_wrap=True)
+        for b in self.bootstraps:
+            frame = b['frame'] or {}
+            ready = b['status'] == 'proposed'
+            t.add_row(b['id'], b['seed'], frame.get('central_question', '(frame 제안 대기)'),
+                      Text('제안됨' if ready else 'seed만',
+                           style=self._st('bold green' if ready else 'yellow')))
+        gv.update(t)
+        lines = ["[b]시작 대기 제안[/b]", "", "제안을 수락하면 inquiry가 생성됩니다.", ""]
+        for b in self.bootstraps:
+            frame = b['frame'] or {}
+            lines.append(f"[b]{b['id']}[/b]  {b['seed']}")
+            if frame.get('central_question'):
+                lines.append(f"  중심 질문: {frame['central_question']}")
+            if frame.get('purpose'):
+                lines.append(f"  목적: {frame['purpose']}")
+            lines.append("")
+        lines.append("명령:  accept <BT-ID>  ·  reject <BT-ID>")
+        self.query_one("#details", Static).update("\n".join(lines))
+        self._set_status("시작 대기 제안 — accept <BT-ID> 로 수락, reject <BT-ID> 로 거부")
+
+    def _after_build(self, sel_line):
         # 대규모 그래프에서 선택이 뷰포트 밖으로 나가는 문제(m1b 18페이지 문제의
         # TUI 버전): 렌더 후 선택 행이 보이도록 지도 스크롤을 따라 붙인다.
         self.call_after_refresh(self._scroll_selection_into_view, sel_line)
@@ -626,9 +672,10 @@ class InquiryTUI(App):
         elif verb in ("check", "uncheck"):
             self._check_action(rest, verb == "check")
         elif verb == "accept":
-            self._accept(rest)
+            # pre-inquiry: accept는 bootstrap 제안을 수락(inquiry 생성). post-inquiry: op/branch proposal.
+            self._accept_bootstrap(rest) if self.state.inquiry is None else self._accept(rest)
         elif verb == "reject":
-            self._reject()
+            self._reject_bootstrap(rest) if self.state.inquiry is None else self._reject()
         elif verb == "cancel":
             self.action_cancel_op()
         elif verb == "find":
@@ -924,6 +971,45 @@ class InquiryTUI(App):
                 if cid not in out:
                     out.append(cid)
         return out
+
+    def _pick_bootstrap(self, args):
+        """Resolve a BT-id from args, or the only proposed one if args is empty."""
+        bid = args.strip()
+        if bid:
+            return next((b for b in self.bootstraps if b['id'] == bid), None)
+        proposed = [b for b in self.bootstraps if b['status'] == 'proposed']
+        return proposed[0] if len(proposed) == 1 else None
+
+    def _accept_bootstrap(self, args=""):
+        boot = self._pick_bootstrap(args)
+        if boot is None:
+            self._set_status("accept <BT-ID> 로 수락할 제안을 지정하세요.")
+            return
+        if boot['status'] != 'proposed':
+            self._set_status(f"{boot['id']}는 아직 frame 제안 전입니다(에이전트 제안 대기).")
+            return
+        try:
+            Commands(self.root).accept_bootstrap(boot['id'])
+        except Exception as e:  # noqa: BLE001
+            self._set_status(f"accept 실패: {e}")
+            return
+        self._reload_state()
+        self._rebuild_table()      # 이제 inquiry 존재 — 그래프/빈-그래프 뷰로 전환
+        self._set_status(f"{boot['id']} 수락 — inquiry 생성됨")
+
+    def _reject_bootstrap(self, args=""):
+        boot = self._pick_bootstrap(args)
+        if boot is None:
+            self._set_status("reject <BT-ID> 로 거부할 제안을 지정하세요.")
+            return
+        try:
+            Commands(self.root).reject_bootstrap(boot['id'], reason="tui-reject")
+        except Exception as e:  # noqa: BLE001
+            self._set_status(f"reject 실패: {e}")
+            return
+        self._reload_state()
+        self._rebuild_table()
+        self._set_status(f"{boot['id']} 거부됨 — 에이전트가 다시 제안할 수 있습니다.")
 
     def _accept(self, args=""):
         if not self.pending:
