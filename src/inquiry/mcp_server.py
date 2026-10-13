@@ -7,6 +7,9 @@ LLM itself. Each session passes its agent name; writes are attributed to ``agent
 The `mcp` package is an optional/lazy dependency (like the OpenAI SDK): the handler
 functions below are plain, testable Python; only ``serve()`` needs `mcp` installed.
 """
+import json
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Literal, Optional
 
 from inquiry.features.ingest.service import IngestService
@@ -18,6 +21,37 @@ from inquiry import monitor
 
 
 _MISSING_MCP = "The MCP server requires the 'mcp' package. Install it with: pip install mcp"
+_ACTIVITY_LOG = 'mcp-activity.jsonl'   # <root>/mcp-activity.jsonl — human-tailable, replay ignores it
+
+
+def _summarize_args(args):
+    """Shorten arg values so the log stays small and append stays ~atomic (not full content)."""
+    out = {}
+    for key, value in (args or {}).items():
+        if isinstance(value, str) and len(value) > 120:
+            out[key] = value[:117] + '…'
+        else:
+            out[key] = value
+    return out
+
+
+def append_activity(root, agent, tool, args, result):
+    """Best-effort: append one JSON line recording an MCP tool call to <root>/mcp-activity.jsonl,
+    then return `result` unchanged. A logging failure must never break the tool call. Note: tools
+    that raise instead of returning a dict (inquiry_add_hypothesis on error) are not logged."""
+    ok = not (isinstance(result, dict) and 'error' in result)
+    entry = {'at': datetime.now(timezone.utc).isoformat(), 'agent': agent, 'tool': tool,
+             'ok': ok, 'args': _summarize_args(args)}
+    if not ok:
+        entry['error'] = result.get('error')
+    try:
+        path = Path(root)
+        path.mkdir(parents=True, exist_ok=True)
+        with open(path / _ACTIVITY_LOG, 'a', encoding='utf-8') as handle:
+            handle.write(json.dumps(entry, ensure_ascii=False) + '\n')
+    except OSError:
+        pass   # best-effort — never fail a tool call on logging
+    return result
 
 
 def _load_server_class():
@@ -159,7 +193,8 @@ def build_server(root, agent):
                               assumptions: Optional[list] = None,
                               falsified_if: Optional[list] = None) -> dict[str, Any]:
         """Propose a hypothesis in the shared inquiry graph (attributed to this agent)."""
-        return add_hypothesis(root, agent, title, claim, parents, assumptions, falsified_if)
+        return append_activity(root, agent, 'inquiry_add_hypothesis', {'title': title},
+            add_hypothesis(root, agent, title, claim, parents, assumptions, falsified_if))
 
     # These Literals mirror EVIDENCE_TYPES / the relation whitelist so the allowed values show
     # up in the tool's input schema (agents pick from them instead of guessing "web"/"url").
@@ -176,7 +211,9 @@ def build_server(root, agent):
         relation: supports|challenges. 'external-article' and 'dataset' require a source `uri`.
         On a validation failure the tool returns an ``{"error", "hint", ...}`` dict (not a raise).
         """
-        return add_evidence(root, agent, target, relation, evidence_type, content, retrieved_at, uri)
+        return append_activity(root, agent, 'inquiry_add_evidence',
+            {'target': target, 'relation': relation, 'evidence_type': evidence_type},
+            add_evidence(root, agent, target, relation, evidence_type, content, retrieved_at, uri))
 
     @server.tool(structured_output=True)
     def inquiry_assess(
@@ -190,7 +227,9 @@ def build_server(root, agent):
         evidence already linked to the hypothesis. Other axes are preserved. You cannot
         downgrade an axis a human/measurement already scored. Returns {"error","hint"} on failure.
         """
-        return assess(root, agent, target, axis, low, high, rationale, evidence_refs, unverified)
+        return append_activity(root, agent, 'inquiry_assess',
+            {'target': target, 'axis': axis, 'low': low, 'high': high},
+            assess(root, agent, target, axis, low, high, rationale, evidence_refs, unverified))
 
     @server.tool(structured_output=True)
     def inquiry_contest(target: str, reason: str, evidence_id: str) -> dict[str, Any]:
@@ -200,7 +239,9 @@ def build_server(root, agent):
         nonempty reason and an evidence_id already linked with the 'challenges' relation.
         Returns {"error","hint"} on failure.
         """
-        return contest(root, agent, target, reason, evidence_id)
+        return append_activity(root, agent, 'inquiry_contest',
+            {'target': target, 'evidence_id': evidence_id},
+            contest(root, agent, target, reason, evidence_id))
 
     @server.tool(structured_output=True)
     def inquiry_report_usage(input_tokens: int, output_tokens: int,
@@ -212,7 +253,9 @@ def build_server(root, agent):
         job). est_cost is optional; if given, pass a price_ref label (e.g. the model/price id).
         Returns {"error","hint"} on invalid input.
         """
-        return report_usage(root, agent, input_tokens, output_tokens, est_cost, price_ref)
+        return append_activity(root, agent, 'inquiry_report_usage',
+            {'input_tokens': input_tokens, 'output_tokens': output_tokens},
+            report_usage(root, agent, input_tokens, output_tokens, est_cost, price_ref))
 
     @server.tool(structured_output=True)
     def inquiry_propose_frame(
@@ -224,8 +267,10 @@ def build_server(root, agent):
         seeded bootstrap_id (initialized:false → bootstraps). You cannot create the inquiry yourself.
         Returns {"error","hint"} on failure.
         """
-        return propose_frame(root, agent, bootstrap_id, central_question, purpose,
-                             criteria, scope_include, scope_exclude)
+        return append_activity(root, agent, 'inquiry_propose_frame',
+            {'bootstrap_id': bootstrap_id, 'central_question': central_question},
+            propose_frame(root, agent, bootstrap_id, central_question, purpose,
+                          criteria, scope_include, scope_exclude))
 
     @server.tool(structured_output=True)
     def inquiry_status(window: int = 3, threshold: float = 0.5) -> dict[str, Any]:
@@ -234,7 +279,8 @@ def build_server(root, agent):
         Before any inquiry exists this returns {"initialized": false, "bootstraps": [...]} so you
         can see human-seeded topics awaiting a frame proposal.
         """
-        return status(root, window, threshold)
+        return append_activity(root, agent, 'inquiry_status',
+            {'window': window, 'threshold': threshold}, status(root, window, threshold))
 
     return server
 
